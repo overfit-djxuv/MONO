@@ -289,7 +289,7 @@ struct ItemSheet: View {
     private func load() {
         if let e = editing {
             name = e.name; quantity = e.quantity; estimate = Money.editable(e.estimatedCents)
-            actual = e.actualCents.map(Money.editable) ?? ""; category = e.category; priority = e.priority
+            actual = e.actualCents.map { Money.editable($0) } ?? ""; category = e.category; priority = e.priority
             listKind = e.listKind; purchased = e.isPurchased
         } else {
             listKind = defaultList

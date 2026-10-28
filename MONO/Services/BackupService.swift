@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 struct BackupFile: Codable, Equatable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     var app = "MONO"
     var version = BackupFile.currentVersion
@@ -20,6 +20,16 @@ struct BackupFile: Codable, Equatable {
     var tripCosts: [TripCostDTO] = []
     /// Optional so backups made before recurring transactions existed still restore.
     var recurringRules: [RecurringDTO]? = nil
+    /// Added in format 2. Older files have none; restoring one creates a Main account from the opening balance.
+    var accounts: [AccountDTO]? = nil
+    var exchangeRates: [RateDTO]? = nil
+    var reportingCurrency: String? = nil
+
+    struct AccountDTO: Codable, Equatable {
+        var id: UUID; var name: String; var kind: String; var currencyCode: String
+        var openingCents: Int; var sortOrder: Int; var isArchived: Bool; var createdAt: Date
+    }
+    struct RateDTO: Codable, Equatable { var fromCode: String; var toCode: String; var rateMicros: Int; var updatedAt: Date }
 
     struct RecurringDTO: Codable, Equatable {
         var id: UUID; var title: String; var amountCents: Int; var kind: String; var category: String
@@ -29,6 +39,8 @@ struct BackupFile: Codable, Equatable {
     struct TransactionDTO: Codable, Equatable {
         var id: UUID; var amountCents: Int; var kind: String; var category: String
         var date: Date; var title: String; var notes: String; var sourceID: UUID?
+        var accountID: UUID? = nil; var toAccountID: UUID? = nil; var toAmountCents: Int? = nil
+        var merchant: String? = nil; var tags: String? = nil
     }
     struct MonthBudgetDTO: Codable, Equatable { var monthKey: String; var totalCents: Int }
     struct BudgetLimitDTO: Codable, Equatable { var monthKey, category: String; var limitCents: Int }
@@ -48,6 +60,7 @@ struct BackupFile: Codable, Equatable {
     }
     struct GoalEntryDTO: Codable, Equatable {
         var id: UUID; var goalID: UUID; var amountCents: Int; var date: Date; var note: String; var affectsCash: Bool
+        var accountID: UUID? = nil
     }
     struct TripCostDTO: Codable, Equatable {
         var id: UUID; var goalID: UUID; var category: String; var label: String; var amountCents: Int
@@ -55,7 +68,7 @@ struct BackupFile: Codable, Equatable {
 
     var recordCount: Int {
         transactions.count + monthBudgets.count + budgetLimits.count + plannedExpenses.count
-            + shoppingItems.count + goals.count + goalEntries.count + tripCosts.count + (recurringRules?.count ?? 0)
+            + shoppingItems.count + goals.count + goalEntries.count + tripCosts.count + (recurringRules?.count ?? 0) + (accounts?.count ?? 0)
     }
 }
 
@@ -86,7 +99,9 @@ enum BackupService {
             .map { .init(name: $0.name, symbol: $0.symbol, kind: $0.kindRaw, isDefault: $0.isDefault, sortOrder: $0.sortOrder) }
         f.transactions = try context.fetch(FetchDescriptor<TransactionRecord>(sortBy: [SortDescriptor(\.date)]))
             .map { .init(id: $0.id, amountCents: $0.amountCents, kind: $0.kindRaw, category: $0.category,
-                         date: $0.date, title: $0.title, notes: $0.notes, sourceID: $0.sourceID) }
+                         date: $0.date, title: $0.title, notes: $0.notes, sourceID: $0.sourceID,
+                         accountID: $0.accountID, toAccountID: $0.toAccountID, toAmountCents: $0.toAmountCents,
+                         merchant: $0.merchant, tags: $0.tags) }
         f.monthBudgets = try context.fetch(FetchDescriptor<MonthBudget>()).map { .init(monthKey: $0.monthKey, totalCents: $0.totalCents) }
         f.budgetLimits = try context.fetch(FetchDescriptor<BudgetLimit>())
             .map { .init(monthKey: $0.monthKey, category: $0.category, limitCents: $0.limitCents) }
@@ -105,12 +120,18 @@ enum BackupService {
                          createdAt: $0.createdAt) }
         f.goalEntries = try context.fetch(FetchDescriptor<GoalEntry>(sortBy: [SortDescriptor(\.date)]))
             .map { .init(id: $0.id, goalID: $0.goalID, amountCents: $0.amountCents, date: $0.date,
-                         note: $0.note, affectsCash: $0.affectsCash) }
+                         note: $0.note, affectsCash: $0.affectsCash, accountID: $0.accountID) }
         f.tripCosts = try context.fetch(FetchDescriptor<TripCost>())
             .map { .init(id: $0.id, goalID: $0.goalID, category: $0.categoryRaw, label: $0.label, amountCents: $0.amountCents) }
         f.recurringRules = try context.fetch(FetchDescriptor<RecurringRule>())
             .map { .init(id: $0.id, title: $0.title, amountCents: $0.amountCents, kind: $0.kindRaw, category: $0.category,
                          dayOfMonth: $0.dayOfMonth, nextMonthKey: $0.nextMonthKey, isActive: $0.isActive) }
+        f.accounts = try context.fetch(FetchDescriptor<Account>(sortBy: [SortDescriptor(\.sortOrder)]))
+            .map { .init(id: $0.id, name: $0.name, kind: $0.kindRaw, currencyCode: $0.currencyCode, openingCents: $0.openingCents,
+                         sortOrder: $0.sortOrder, isArchived: $0.isArchived, createdAt: $0.createdAt) }
+        f.exchangeRates = try context.fetch(FetchDescriptor<ExchangeRate>())
+            .map { .init(fromCode: $0.fromCode, toCode: $0.toCode, rateMicros: $0.rateMicros, updatedAt: $0.updatedAt) }
+        f.reportingCurrency = Money.reporting.code
         return f
     }
 
@@ -188,6 +209,27 @@ enum BackupService {
             guard goalIDs.contains(c.goalID), TripCostCategory(rawValue: c.category) != nil,
                   (0...cap).contains(c.amountCents) else { throw fail("invalid trip cost") }
         }
+        let accountIDs = Set((f.accounts ?? []).map(\.id))
+        if let accounts = f.accounts {
+            guard accountIDs.count == accounts.count else { throw fail("duplicate account ids") }
+            for a in accounts {
+                guard AccountKind(rawValue: a.kind) != nil, (0...cap).contains(abs(a.openingCents)),
+                      a.currencyCode.count == 3, !a.name.isEmpty else { throw fail("invalid account “\(a.name)”") }
+            }
+            for t in f.transactions {
+                if let id = t.accountID, !accountIDs.contains(id) { throw fail("a transaction refers to an account that is not in the file") }
+            }
+            for e in f.goalEntries {
+                if let id = e.accountID, !accountIDs.contains(id) { throw fail("a contribution refers to an account that is not in the file") }
+            }
+        }
+        for t in f.transactions where t.kind == TxKind.transfer.rawValue {
+            guard let from = t.accountID, let to = t.toAccountID, from != to, (1...cap).contains(t.toAmountCents ?? 0),
+                  f.accounts == nil || (accountIDs.contains(from) && accountIDs.contains(to)) else { throw fail("invalid transfer") }
+        }
+        for r in f.exchangeRates ?? [] {
+            guard r.fromCode.count == 3, r.toCode.count == 3, r.fromCode != r.toCode, r.rateMicros > 0 else { throw fail("invalid exchange rate") }
+        }
         let ruleIDs = (f.recurringRules ?? []).map(\.id)
         guard Set(ruleIDs).count == ruleIDs.count else { throw fail("duplicate recurring ids") }
         for r in f.recurringRules ?? [] {
@@ -212,16 +254,28 @@ enum BackupService {
             try context.delete(model: TripCost.self)
             try context.delete(model: SavingsGoal.self)
             try context.delete(model: RecurringRule.self)
+            try context.delete(model: Account.self)
+            try context.delete(model: ExchangeRate.self)
             try context.delete(model: MoneyCategory.self)
 
+            for a in f.accounts ?? [] {
+                let m = Account(name: a.name, kind: AccountKind(rawValue: a.kind) ?? .other, currencyCode: a.currencyCode,
+                                openingCents: a.openingCents, sortOrder: a.sortOrder, id: a.id)
+                m.isArchived = a.isArchived; m.createdAt = a.createdAt
+                context.insert(m)
+            }
+            for r in f.exchangeRates ?? [] { context.insert(ExchangeRate(fromCode: r.fromCode, toCode: r.toCode, rateMicros: r.rateMicros, updatedAt: r.updatedAt)) }
             for c in f.categories {
                 context.insert(MoneyCategory(name: c.name, symbol: c.symbol, kind: TxKind(rawValue: c.kind) ?? .expense,
                                              isDefault: c.isDefault, sortOrder: c.sortOrder))
             }
             for t in f.transactions {
-                context.insert(TransactionRecord(amountCents: t.amountCents, kind: TxKind(rawValue: t.kind) ?? .expense,
-                                                 category: t.category, date: t.date, title: t.title, notes: t.notes,
-                                                 sourceID: t.sourceID, id: t.id))
+                let m = TransactionRecord(amountCents: t.amountCents, kind: TxKind(rawValue: t.kind) ?? .expense,
+                                          category: t.category, date: t.date, title: t.title, notes: t.notes,
+                                          sourceID: t.sourceID, id: t.id, accountID: t.accountID,
+                                          merchant: t.merchant ?? "", tags: t.tags ?? "")
+                m.toAccountID = t.toAccountID; m.toAmountCents = t.toAmountCents ?? 0
+                context.insert(m)
             }
             for b in f.monthBudgets { context.insert(MonthBudget(monthKey: b.monthKey, totalCents: b.totalCents)) }
             for l in f.budgetLimits { context.insert(BudgetLimit(monthKey: l.monthKey, category: l.category, limitCents: l.limitCents)) }
@@ -246,8 +300,10 @@ enum BackupService {
                 context.insert(m)
             }
             for e in f.goalEntries {
-                context.insert(GoalEntry(goalID: e.goalID, amountCents: e.amountCents, date: e.date, note: e.note,
-                                         affectsCash: e.affectsCash, id: e.id))
+                let m = GoalEntry(goalID: e.goalID, amountCents: e.amountCents, date: e.date, note: e.note,
+                                  affectsCash: e.affectsCash, id: e.id)
+                m.accountID = e.accountID
+                context.insert(m)
             }
             for c in f.tripCosts {
                 context.insert(TripCost(goalID: c.goalID, category: TripCostCategory(rawValue: c.category) ?? .other,
@@ -265,7 +321,10 @@ enum BackupService {
         }
         UserDefaults.standard.set(f.openingBalanceCents, forKey: "openingBalanceCents")
         UserDefaults.standard.set(f.currencySymbol, forKey: "currencySymbol")
+        if let code = f.reportingCurrency { UserDefaults.standard.set(code, forKey: Money.reportingKey) }
         UserDefaults.standard.set(true, forKey: DefaultCategories.seededKey)
+        // A format-1 file has no accounts: give its records a Main account holding its opening balance.
+        _ = try? AccountMigration.run(in: context, snapshotFirst: false)
     }
 
     // MARK: Backup freshness

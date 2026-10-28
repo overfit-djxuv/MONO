@@ -69,7 +69,11 @@ enum FinanceEngine {
                        calendar: Calendar = .current) -> (income: Int, expense: Int) {
         var income = 0, expense = 0
         for t in txs where MonthKey(t.date, calendar: calendar) == month {
-            if t.kind == .income { income += t.amountCents } else { expense += t.amountCents }
+            switch t.kind {
+            case .income: income += t.amountCents
+            case .expense: expense += t.amountCents
+            case .transfer: break   // moving money between your own accounts is neither income nor spending
+            }
         }
         return (income, expense)
     }
@@ -79,7 +83,13 @@ enum FinanceEngine {
     /// destroy money; it only moves it between "available cash" and "saved".
     static func availableCash(opening: Int, transactions: [TransactionRecord], entries: [GoalEntry]) -> Int {
         var cash = opening
-        for t in transactions { cash += t.kind == .income ? t.amountCents : -t.amountCents }
+        for t in transactions {
+            switch t.kind {
+            case .income: cash += t.amountCents
+            case .expense: cash -= t.amountCents
+            case .transfer: break
+            }
+        }
         for e in entries where e.affectsCash { cash -= e.amountCents }
         return cash
     }
@@ -112,7 +122,7 @@ enum FinanceEngine {
     static func monthlySummaries(_ txs: [TransactionRecord], range: [MonthKey],
                                  calendar: Calendar = .current) -> [MonthSummary] {
         var income: [MonthKey: Int] = [:], expense: [MonthKey: Int] = [:], count: [MonthKey: Int] = [:]
-        for t in txs {
+        for t in txs where t.kind != .transfer {
             let k = MonthKey(t.date, calendar: calendar)
             count[k, default: 0] += 1
             if t.kind == .income { income[k, default: 0] += t.amountCents } else { expense[k, default: 0] += t.amountCents }

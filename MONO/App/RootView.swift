@@ -59,7 +59,7 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.15), value: phase)
         .animation(.easeOut(duration: 0.15), value: lock.isLocked)
         .onChange(of: plannedSignature) { _, _ in refreshReminders() }
-        .onChange(of: allTx.count) { _, _ in refreshBudgetAlert() }
+        .onChange(of: allTx.count) { _, _ in refreshBudgetAlert(); migrateAccounts() }
         .onChange(of: phase) { _, new in
             switch new {
             case .background: lock.lockIfEnabled()
@@ -78,6 +78,7 @@ struct RootView: View {
         .task {
             if lock.isLocked { await lock.unlock() }
             DefaultCategories.seedIfNeeded(context)
+            migrateAccounts()
             postRecurring()
             #if DEBUG
             DemoData.loadIfRequested(context)
@@ -90,6 +91,12 @@ extension RootView {
     /// Changes whenever a planned expense is added, edited, paid or removed.
     fileprivate var plannedSignature: [String] {
         planned.map { "\($0.id)|\($0.title)|\($0.amountCents)|\($0.dueDate.timeIntervalSince1970)|\($0.isPaid)" }
+    }
+
+    /// Gives every record an account (see AccountMigration). Cheap and idempotent, so it also runs after imports and restores.
+    fileprivate func migrateAccounts() {
+        do { try AccountMigration.run(in: context) }
+        catch { errors.report(error, doing: "Couldn’t set up accounts. Your data was not changed") }
     }
 
     fileprivate func refreshReminders() {

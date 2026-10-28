@@ -5,8 +5,25 @@ import SwiftData
 
 enum TxKind: String, Codable, CaseIterable, Identifiable {
     case income, expense
+    /// Money moving between two of your own accounts. It is neither income nor expense and never appears in either total.
+    case transfer
     var id: String { rawValue }
-    var label: String { self == .income ? "Income" : "Expense" }
+    var label: String {
+        switch self { case .income: "Income"; case .expense: "Expense"; case .transfer: "Transfer" }
+    }
+    /// Kinds that belong to a category (transfers have none).
+    static let categoryKinds: [TxKind] = [.income, .expense]
+}
+
+enum AccountKind: String, Codable, CaseIterable, Identifiable {
+    case cash, bank, ewallet, other
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .cash: "Cash"; case .bank: "Bank account"; case .ewallet: "E-wallet"; case .other: "Other" }
+    }
+    var symbol: String {
+        switch self { case .cash: "banknote"; case .bank: "building.columns"; case .ewallet: "iphone"; case .other: "square.stack" }
+    }
 }
 
 enum Priority: Int, Codable, CaseIterable, Identifiable {
@@ -74,9 +91,18 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var notes: String = ""
     /// The shopping item or planned expense this transaction was generated from (duplicate guard).
     var sourceID: UUID? = nil
+    /// The account this belongs to; for a transfer, the account the money left. nil means the default account (older records).
+    var accountID: UUID? = nil
+    /// Transfers only: the account the money arrived in, and how much arrived in that account's own currency.
+    var toAccountID: UUID? = nil
+    var toAmountCents: Int = 0
+    var merchant: String = ""
+    /// Comma-separated, lower-case tags.
+    var tags: String = ""
 
     init(amountCents: Int, kind: TxKind, category: String, date: Date, title: String,
-         notes: String = "", sourceID: UUID? = nil, id: UUID = UUID()) {
+         notes: String = "", sourceID: UUID? = nil, id: UUID = UUID(),
+         accountID: UUID? = nil, merchant: String = "", tags: String = "") {
         self.id = id
         self.amountCents = amountCents
         self.kindRaw = kind.rawValue
@@ -85,6 +111,9 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
         self.title = title
         self.notes = notes
         self.sourceID = sourceID
+        self.accountID = accountID
+        self.merchant = merchant
+        self.tags = tags
     }
 
     var kind: TxKind {
@@ -201,6 +230,8 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var note: String = ""
     /// False for money that was already saved before using MONO (does not reduce available cash).
     var affectsCash: Bool = true
+    /// The account the money came from (or returned to). nil means the default account.
+    var accountID: UUID? = nil
 
     init(goalID: UUID, amountCents: Int, date: Date, note: String = "",
          affectsCash: Bool = true, id: UUID = UUID()) {
@@ -263,10 +294,51 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Where money lives: a wallet, a bank account, an e-wallet. Balances are always in the account's own currency.
+@Model final class Account {
+    var id: UUID = UUID()
+    var name: String = ""
+    var kindRaw: String = AccountKind.bank.rawValue
+    var currencyCode: String = "MYR"
+    var openingCents: Int = 0
+    var sortOrder: Int = 0
+    /// Archived accounts are hidden from pickers but their balance still counts, so money never disappears.
+    var isArchived: Bool = false
+    var createdAt: Date = Date()
+
+    init(name: String, kind: AccountKind, currencyCode: String, openingCents: Int = 0, sortOrder: Int = 0, id: UUID = UUID()) {
+        self.id = id
+        self.name = name
+        self.kindRaw = kind.rawValue
+        self.currencyCode = currencyCode
+        self.openingCents = openingCents
+        self.sortOrder = sortOrder
+    }
+
+    var kind: AccountKind { AccountKind(rawValue: kindRaw) ?? .other }
+    var currency: Currency { Currency.find(currencyCode) }
+}
+
+/// A rate the user entered: 1 `fromCode` = `rateMicros / 1,000,000` `toCode`. The app never fetches rates.
+@Model final class ExchangeRate {
+    var fromCode: String = ""
+    var toCode: String = ""
+    var rateMicros: Int = 0
+    var updatedAt: Date = Date()
+
+    init(fromCode: String, toCode: String, rateMicros: Int, updatedAt: Date = .now) {
+        self.fromCode = fromCode
+        self.toCode = toCode
+        self.rateMicros = rateMicros
+        self.updatedAt = updatedAt
+    }
+}
+
 enum AppSchema {
     static let models: [any PersistentModel.Type] = [
         MoneyCategory.self, TransactionRecord.self, MonthBudget.self, BudgetLimit.self,
         PlannedExpense.self, ShoppingItem.self, SavingsGoal.self, GoalEntry.self, TripCost.self, RecurringRule.self,
+        Account.self, ExchangeRate.self,
     ]
 }
 

@@ -195,9 +195,13 @@ final class BackupTests: XCTestCase {
         try BackupService.replaceAll(with: decoded, in: ctx2)
 
         let restored = try BackupService.snapshot(context: ctx2, openingBalanceCents: UserDefaults.standard.integer(forKey: "openingBalanceCents"), currencySymbol: "RM")
-        XCTAssertEqual(normalized(restored).transactions, normalized(decoded).transactions)
+        // The populated data predates accounts, so restoring it assigns records to a Main account; everything else must match.
+        func noAccount(_ t: [BackupFile.TransactionDTO]) -> [BackupFile.TransactionDTO] { t.map { var c = $0; c.accountID = nil; return c } }
+        func noAccount(_ e: [BackupFile.GoalEntryDTO]) -> [BackupFile.GoalEntryDTO] { e.map { var c = $0; c.accountID = nil; return c } }
+        XCTAssertEqual(noAccount(normalized(restored).transactions), noAccount(normalized(decoded).transactions))
+        XCTAssertEqual(restored.accounts?.count, 1, "a Main account was created for the old records")
         XCTAssertEqual(restored.goals, decoded.goals)
-        XCTAssertEqual(restored.goalEntries.sorted { $0.amountCents < $1.amountCents }, decoded.goalEntries.sorted { $0.amountCents < $1.amountCents })
+        XCTAssertEqual(noAccount(restored.goalEntries.sorted { $0.amountCents < $1.amountCents }), noAccount(decoded.goalEntries.sorted { $0.amountCents < $1.amountCents }))
         XCTAssertEqual(restored.tripCosts, decoded.tripCosts)
         XCTAssertEqual(restored.shoppingItems, decoded.shoppingItems)
         XCTAssertEqual(restored.plannedExpenses, decoded.plannedExpenses)
