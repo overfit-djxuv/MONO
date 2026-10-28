@@ -11,6 +11,11 @@ struct Release: Identifiable, Equatable {
 
 enum VersionHistory {
     static let releases: [Release] = [
+        Release(version: "1.6", date: "29 Oct 2026", title: "System Theme",
+                notes: ["One System Theme screen in Settings: colours, appearance mode, Liquid Glass and the app icon, switched with a single Theme / App icon control.",
+                        "Choose secondary text and border colours, or leave them automatic.",
+                        "A single Reset to default, with confirmation, for the whole theme and the app icon.",
+                        "30 app icon looks: five styles in six colours, including new Minimal and Outline styles and Warm and Midnight colours that match the built-in themes. A Match my theme shortcut picks the matching colour."]),
         Release(version: "1.5", date: "29 Oct 2026", title: "Accounts and currencies",
                 notes: ["Accounts: cash, bank accounts and e-wallets, each with its own currency and starting balance. Your existing money moved into a “Main account” with nothing lost.",
                         "Transfers between accounts. They are never counted as income or spending, and a cross-currency transfer records the exact amount sent and received.",

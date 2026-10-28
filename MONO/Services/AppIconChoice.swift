@@ -1,26 +1,41 @@
 import SwiftUI
 
-/// The app icon is one of 12 built-in looks: 3 styles × 4 colourways. iOS can only switch between icons that ship inside the app,
+/// The app icon is one of 30 built-in looks: 5 styles × 6 colourways. iOS can only switch between icons that ship inside the app,
 /// so every combination is pre-rendered (tools/make_icon.swift) rather than recoloured on the fly.
 enum IconStyle: String, CaseIterable, Identifiable {
-    case glass, orbit, dusk
+    case glass, orbit, dusk, minimal, outline
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
     var detail: String {
-        switch self { case .glass: "Frosted tile"; case .orbit: "Progress ring"; case .dusk: "Soft light" }
+        switch self {
+        case .glass: "Frosted tile"; case .orbit: "Progress ring"; case .dusk: "Soft light"
+        case .minimal: "Flat and quiet"; case .outline: "Framed"
+        }
     }
 }
 
 enum IconColor: String, CaseIterable, Identifiable {
-    case forest, slate, bronze, graphite
+    case forest, warm, midnight, slate, bronze, graphite
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
     var swatch: Color {
         switch self {
         case .forest: Color(light: 0x3F7A62, dark: 0x4F8C73)
+        case .warm: Color(light: 0x7A5C43, dark: 0x9C7C60)
+        case .midnight: Color(light: 0x4B5663, dark: 0x7C8798)
         case .slate: Color(light: 0x4A6A8C, dark: 0x5C7C9E)
         case .bronze: Color(light: 0x8A6B3F, dark: 0x9C7C50)
         case .graphite: Color(light: 0x5A5E66, dark: 0x70747C)
+        }
+    }
+
+    /// The icon colour that goes with a built-in theme palette; nil for your own palettes.
+    static func matching(paletteID: String) -> IconColor? {
+        switch paletteID {
+        case "sage-cream": .forest
+        case "warm-minimal": .warm
+        case "midnight-elegance": .midnight
+        default: nil
         }
     }
 }

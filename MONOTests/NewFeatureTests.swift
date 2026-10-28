@@ -532,3 +532,38 @@ final class ThemeTests: XCTestCase {
         }
     }
 }
+
+final class SystemThemeTests: XCTestCase {
+    func testSecondaryTextAndBorderFollowYourColoursUntilYouPickOne() {
+        var c = ThemePalette.sageCream.light
+        let auto = (c.textSecondary, c.line, c.cardLine)
+        XCTAssertNil(c.secondaryText); XCTAssertNil(c.border)
+        c.secondaryText = 0x445566; c.border = 0xAABBCC
+        XCTAssertEqual(c.textSecondary, 0x445566); XCTAssertEqual(c.line, 0xAABBCC); XCTAssertEqual(c.cardLine, 0xAABBCC)
+        c.secondaryText = nil; c.border = nil
+        XCTAssertEqual(c.textSecondary, auto.0); XCTAssertEqual(c.line, auto.1); XCTAssertEqual(c.cardLine, auto.2)
+    }
+    func testPalettesSavedBeforeTheNewColoursExistStillLoad() throws {
+        // The JSON written by version 1.4, which has no secondaryText or border keys.
+        let old = """
+        {"selectedID":"custom-1","glass":0.4,"custom":[{"id":"custom-1","name":"Mine",
+         "light":{"primary":1,"secondary":2,"background":3,"surface":4,"accent":5,"text":6},
+         "dark":{"primary":1,"secondary":2,"background":3,"surface":4,"accent":5,"text":6}}]}
+        """
+        let saved = try JSONDecoder().decode(ThemeStore.Saved.self, from: Data(old.utf8))
+        XCTAssertEqual(saved.custom.first?.name, "Mine"); XCTAssertNil(saved.custom.first?.light.secondaryText)
+        XCTAssertEqual(saved.glass, 0.4, accuracy: 0.0001)
+        // and the new fields survive a round trip
+        var p = saved.custom[0]; p.dark.border = 0x123456
+        let again = try JSONDecoder().decode(ThemePalette.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(again.dark.border, 0x123456)
+    }
+    func testIconGalleryHasFiveStylesInSixColoursAndMatchesBuiltInThemes() {
+        XCTAssertEqual(IconStyle.allCases.count, 5); XCTAssertEqual(IconColor.allCases.count, 6)
+        XCTAssertEqual(AppIconChoice.allAlternateNames.count, 29, "30 looks, one of which is the original icon")
+        XCTAssertEqual(IconColor.matching(paletteID: "sage-cream"), .forest)
+        XCTAssertEqual(IconColor.matching(paletteID: "warm-minimal"), .warm)
+        XCTAssertEqual(IconColor.matching(paletteID: "midnight-elegance"), .midnight)
+        XCTAssertNil(IconColor.matching(paletteID: "custom-123"))
+    }
+}

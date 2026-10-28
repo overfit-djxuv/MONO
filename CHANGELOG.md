@@ -2,6 +2,12 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 1.6 · 29 Oct 2026 · System Theme
+- One System Theme screen in Settings: colours, appearance mode, Liquid Glass and the app icon, switched with a single Theme / App icon control.
+- Choose secondary text and border colours, or leave them automatic.
+- A single Reset to default, with confirmation, for the whole theme and the app icon.
+- 30 app icon looks: five styles in six colours, including new Minimal and Outline styles and Warm and Midnight colours that match the built-in themes. A Match my theme shortcut picks the matching colour.
+
 ## 1.5 · 29 Oct 2026 · Accounts and currencies
 - Accounts: cash, bank accounts and e-wallets, each with its own currency and starting balance. Existing money moved into a "Main account" with nothing lost.
 - Transfers between accounts. They are never counted as income or spending, and a cross-currency transfer records the exact amount sent and received.

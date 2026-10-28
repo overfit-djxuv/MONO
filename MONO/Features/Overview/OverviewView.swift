@@ -85,7 +85,7 @@ struct OverviewView: View {
             .monoScreen()
             .navigationTitle("Overview")
             .navigationDestination(for: OverviewRoute.self) { r in
-                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: AppIconView(); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView() }
+                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

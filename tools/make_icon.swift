@@ -2,7 +2,7 @@
 //   make_icon <out.png> <style> [appearance] [palette]   one 1024×1024 icon
 //   make_icon sheet <out.png> [palette]                  contact sheet of every style
 //   make_icon catalog <Assets.xcassets>                  every alternate-icon set + in-app previews
-// style: orbit | glass | dusk      appearance: light | dark | tinted      palette: forest | slate | bronze | graphite
+// style: glass | orbit | dusk | minimal | outline      appearance: light | dark | tinted      palette: forest | warm | midnight | slate | bronze | graphite
 import AppKit
 import CoreGraphics
 
@@ -43,6 +43,14 @@ let palettes: [String: Palette] = [
                       ringLight: 0xF0E6D6, ringMid: 0xB59A6B, glyphDark: 0xCDB48A, glyphTop: 0x8A6B3F, glyphBottom: 0x3A2B1A,
                       pearlTop: 0xFBF8F2, pearlBottom: 0xE8DDCB, lightA: 0xE6D2AC, lightB: 0xDCC3B0, lightC: 0xC8D6C0,
                       darkA: 0x6B5636, darkB: 0x5A4636, darkC: 0x44503C),
+    "warm": Palette(name: "warm", nightTop: 0x2A231D, nightBottom: 0x0E0B09, glowA: 0x8A6B4A, glowB: 0x6B5445, glowC: 0xA08C70, glowD: 0x5A4A3F,
+                    ringLight: 0xF4EBDD, ringMid: 0xC2A88E, glyphDark: 0xD9C3A8, glyphTop: 0x7A5C43, glyphBottom: 0x3B2B1F,
+                    pearlTop: 0xFBF7EE, pearlBottom: 0xEADFCB, lightA: 0xE6D3B5, lightB: 0xD9C7AE, lightC: 0xEBDDC4,
+                    darkA: 0x5C4636, darkB: 0x4A3F35, darkC: 0x6B5A44),
+    "midnight": Palette(name: "midnight", nightTop: 0x1A1E24, nightBottom: 0x08090C, glowA: 0x4B5663, glowB: 0x3E4A59, glowC: 0x6B7280, glowD: 0x343B47,
+                        ringLight: 0xE6E9ED, ringMid: 0xAEB8C4, glyphDark: 0xC7CED6, glyphTop: 0x4A5C70, glyphBottom: 0x1C2128,
+                        pearlTop: 0xF4F6F8, pearlBottom: 0xDDE2E8, lightA: 0xC7CED6, lightB: 0xB5BFCB, lightC: 0xDCDFE3,
+                        darkA: 0x3D4752, darkB: 0x2F3844, darkC: 0x4B5663),
     "graphite": Palette(name: "graphite", nightTop: 0x1B1C1E, nightBottom: 0x070708, glowA: 0x55585E, glowB: 0x474A50, glowC: 0x62605A, glowD: 0x3E4147,
                         ringLight: 0xEDEEF0, ringMid: 0xA3A7AE, glyphDark: 0xC4C7CC, glyphTop: 0x5A5E66, glyphBottom: 0x26282B,
                         pearlTop: 0xF8F8F8, pearlBottom: 0xDEDEDF, lightA: 0xCDD0D4, lightB: 0xD8D6D2, lightC: 0xE4E1DC,
@@ -154,6 +162,29 @@ func drawDusk(_ ctx: CGContext, _ a: String, _ p: Palette) {
                    y0: 326, y1: 698, shadow: rgb(0x000000, 0.4), shadowBlur: 44, shadowDY: -18)
 }
 
+/// "minimal": one flat field, one thin M. No gradients, no shadow, no glow.
+func drawMinimal(_ ctx: CGContext, _ a: String, _ p: Palette) {
+    let dark = a == "dark", tinted = a == "tinted"
+    let field: UInt32 = tinted ? 0x000000 : (dark ? p.nightBottom : p.pearlTop)
+    ctx.setFillColor(rgb(field)); ctx.fill(CGRect(x: 0, y: 0, width: 1024, height: 1024))
+    let ink: UInt32 = tinted ? 0xFFFFFF : (dark ? p.ringLight : p.glyphBottom)
+    ctx.setStrokeColor(rgb(ink)); ctx.setLineWidth(46); ctx.setLineCap(.round); ctx.setLineJoin(.round)
+    ctx.addPath(mPath(width: 330, height: 300, vertex: 0.5)); ctx.strokePath()
+}
+
+/// "outline": a quiet frame around a thin M.
+func drawOutline(_ ctx: CGContext, _ a: String, _ p: Palette) {
+    let dark = a == "dark", tinted = a == "tinted"
+    let field: UInt32 = tinted ? 0x000000 : (dark ? p.nightTop : p.pearlBottom)
+    ctx.setFillColor(rgb(field)); ctx.fill(CGRect(x: 0, y: 0, width: 1024, height: 1024))
+    let ink: UInt32 = tinted ? 0xFFFFFF : (dark ? p.ringLight : p.glyphBottom)
+    let frame = tinted ? 0xBBBBBB : (dark ? p.ringMid : p.glyphTop)
+    ctx.setStrokeColor(rgb(frame)); ctx.setLineWidth(22)
+    ctx.addPath(roundedRect(CGRect(x: 214, y: 214, width: 596, height: 596), 150)); ctx.strokePath()
+    ctx.setStrokeColor(rgb(ink)); ctx.setLineWidth(40); ctx.setLineCap(.round); ctx.setLineJoin(.round)
+    ctx.addPath(mPath(width: 250, height: 226, vertex: 0.5)); ctx.strokePath()
+}
+
 func render(_ style: String, _ appearance: String, _ palette: String, size: Int = 1024) -> CGImage {
     let ctx = CGContext(data: nil, width: 1024, height: 1024, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
@@ -161,6 +192,8 @@ func render(_ style: String, _ appearance: String, _ palette: String, size: Int 
     switch style {
     case "orbit": drawOrbit(ctx, appearance, p)
     case "glass": drawGlass(ctx, appearance, p)
+    case "minimal": drawMinimal(ctx, appearance, p)
+    case "outline": drawOutline(ctx, appearance, p)
     default: drawDusk(ctx, appearance, p)
     }
     let full = ctx.makeImage()!
@@ -176,8 +209,8 @@ func write(_ image: CGImage, to path: String) {
     try! NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
 }
 
-let styles = ["orbit", "glass", "dusk"]
-let paletteOrder = ["forest", "slate", "bronze", "graphite"]
+let styles = ["glass", "orbit", "dusk", "minimal", "outline"]
+let paletteOrder = ["forest", "warm", "midnight", "slate", "bronze", "graphite"]
 let args = CommandLine.arguments
 
 if args.count >= 3, args[1] == "sheet" {

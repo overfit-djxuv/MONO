@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.5"
-    CURRENT_PROJECT_VERSION: "7"
+    MARKETING_VERSION: "1.6"
+    CURRENT_PROJECT_VERSION: "8"
     CODE_SIGN_STYLE: Automatic
     # Set your Apple team in Xcode (Signing & Capabilities) or put the 10-character Team ID here.
     DEVELOPMENT_TEAM: YOURTEAMID
@@ -26,7 +26,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.monoapp
         PRODUCT_NAME: MONO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "icon-glass-slate icon-glass-bronze icon-glass-graphite icon-orbit-forest icon-orbit-slate icon-orbit-bronze icon-orbit-graphite icon-dusk-forest icon-dusk-slate icon-dusk-bronze icon-dusk-graphite"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "icon-glass-warm icon-glass-midnight icon-glass-slate icon-glass-bronze icon-glass-graphite icon-orbit-forest icon-orbit-warm icon-orbit-midnight icon-orbit-slate icon-orbit-bronze icon-orbit-graphite icon-dusk-forest icon-dusk-warm icon-dusk-midnight icon-dusk-slate icon-dusk-bronze icon-dusk-graphite icon-minimal-forest icon-minimal-warm icon-minimal-midnight icon-minimal-slate icon-minimal-bronze icon-minimal-graphite icon-outline-forest icon-outline-warm icon-outline-midnight icon-outline-slate icon-outline-bronze icon-outline-graphite"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: MONO

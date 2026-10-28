@@ -69,12 +69,15 @@ struct ThemeColors: Codable, Equatable {
     var surface: UInt32      // cards and sheets
     var accent: UInt32       // links, progress, selection, income
     var text: UInt32
+    /// Optional overrides. Left nil, these are derived from text and background so they always stay readable.
+    var secondaryText: UInt32? = nil
+    var border: UInt32? = nil
 
     // Derived tokens (each guaranteed readable if text/background are).
-    var textSecondary: UInt32 { ColorMath.mix(text, background, 0.30) }
-    var textTertiary: UInt32 { ColorMath.mix(text, background, 0.44) }
-    var line: UInt32 { ColorMath.mix(background, text, 0.12) }
-    var cardLine: UInt32 { ColorMath.mix(surface, text, 0.10) }
+    var textSecondary: UInt32 { secondaryText ?? ColorMath.mix(text, background, 0.30) }
+    var textTertiary: UInt32 { ColorMath.mix(secondaryText ?? text, background, secondaryText == nil ? 0.44 : 0.30) }
+    var line: UInt32 { border ?? ColorMath.mix(background, text, 0.12) }
+    var cardLine: UInt32 { border ?? ColorMath.mix(surface, text, 0.10) }
     var accentSoft: UInt32 { ColorMath.mix(surface, accent, 0.16) }
     var onPrimary: UInt32 { ColorMath.onColor(for: primary) }
     var heroBottom: UInt32 { ColorMath.mix(primary, text, 0.14) }   // a gentle shade, never a harsh gradient

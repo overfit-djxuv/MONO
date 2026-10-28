@@ -1,25 +1,34 @@
 import SwiftUI
+import UIKit
 
-/// Choose a palette, edit its colours, set the Liquid Glass intensity. Edits preview live across the whole app and only
-/// stick when saved.
+/// System Theme: every appearance control in one place. A switch at the top moves between the app's colours and its home-screen icon.
+/// Colour edits preview live across the whole app and only stick when saved.
 struct ThemeEditorView: View {
+    enum Tab: String, CaseIterable, Identifiable { case theme = "Theme", icon = "App icon"; var id: String { rawValue } }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var systemScheme
+    @Environment(ErrorCenter.self) private var errors
     @AppStorage("appearance") private var appearance = 0
+    @State private var tab: Tab
     @State private var editScheme: ColorScheme = .light
     @State private var draftName = ""
     @State private var showLeave = false
     @State private var pendingDelete: ThemePalette?
     @State private var confirmReset = false
+    @State private var showAdvanced = false
     private let store = ThemeStore.shared
 
+    init(initialTab: Tab = .theme) { _tab = State(initialValue: initialTab) }
+
     enum Field: CaseIterable, Identifiable {
-        case primary, secondary, background, surface, accent, text
+        case primary, secondary, background, surface, accent, text, secondaryText, border
         var id: Self { self }
         var label: String {
             switch self {
             case .primary: "Primary"; case .secondary: "Secondary"; case .background: "Background"
             case .surface: "Surface"; case .accent: "Accent"; case .text: "Text"
+            case .secondaryText: "Secondary text"; case .border: "Borders"
             }
         }
         var detail: String {
@@ -27,12 +36,27 @@ struct ThemeEditorView: View {
             case .primary: "Balance card, main buttons"; case .secondary: "Backdrop and chart tone"
             case .background: "Behind everything"; case .surface: "Cards and sheets"
             case .accent: "Links, progress, income"; case .text: "Titles and figures"
+            case .secondaryText: "Captions and labels"; case .border: "Separators and card edges"
             }
         }
-        var path: WritableKeyPath<ThemeColors, UInt32> {
+        /// Secondary text and borders follow your colours automatically until you pick one.
+        var isOptional: Bool { self == .secondaryText || self == .border }
+        func value(_ c: ThemeColors) -> UInt32 {
             switch self {
-            case .primary: \.primary; case .secondary: \.secondary; case .background: \.background
-            case .surface: \.surface; case .accent: \.accent; case .text: \.text
+            case .primary: c.primary; case .secondary: c.secondary; case .background: c.background
+            case .surface: c.surface; case .accent: c.accent; case .text: c.text
+            case .secondaryText: c.textSecondary; case .border: c.cardLine
+            }
+        }
+        func isOverridden(_ c: ThemeColors) -> Bool {
+            switch self { case .secondaryText: c.secondaryText != nil; case .border: c.border != nil; default: false }
+        }
+        func set(_ c: inout ThemeColors, _ v: UInt32?) {
+            switch self {
+            case .primary: if let v { c.primary = v }; case .secondary: if let v { c.secondary = v }
+            case .background: if let v { c.background = v }; case .surface: if let v { c.surface = v }
+            case .accent: if let v { c.accent = v }; case .text: if let v { c.text = v }
+            case .secondaryText: c.secondaryText = v; case .border: c.border = v
             }
         }
     }
@@ -42,18 +66,26 @@ struct ThemeEditorView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                ThemePreview(scheme: editScheme)
-                modeCard
-                palettesCard
-                coloursCard
-                contrastCard
-                glassCard
+                Picker("Section", selection: $tab) { ForEach(Tab.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented)
+                    .padding(.top, 4)
+                if tab == .theme {
+                    ThemePreview(scheme: editScheme)
+                    palettesCard
+                    modeCard
+                    coloursCard
+                    contrastCard
+                    glassCard
+                } else {
+                    AppIconCards()
+                }
                 actionsCard
             }
             .padding(.horizontal, Theme.gutter).padding(.vertical, 8).padding(.bottom, 28)
+            .animation(Theme.easeOut(0.2), value: tab)
         }
         .monoScreen()
-        .navigationTitle("Theme")
+        .navigationTitle("System Theme")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(store.hasDraft)
         .toolbar {
@@ -70,25 +102,34 @@ struct ThemeEditorView: View {
                             titleVisibility: .visible, presenting: pendingDelete) { p in
             Button("Delete palette", role: .destructive) { store.delete(p.id); Haptics.warning() }
         }
-        .confirmationDialog("Reset the theme?", isPresented: $confirmReset, titleVisibility: .visible) {
-            Button("Reset to Sage & Cream", role: .destructive) { store.resetAll(); appearance = 0 }
-        } message: { Text("Your saved palettes are deleted and glass returns to its default.") }
+        .confirmationDialog("Reset System Theme?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Reset to default", role: .destructive) { resetAll() }
+        } message: { Text("Colours return to Sage & Cream, your saved palettes are deleted, glass returns to its default, appearance follows the system and the app icon goes back to the original. Your financial data is not touched.") }
         .onAppear { editScheme = systemScheme; draftName = store.active.name }
         .onChange(of: store.active.id) { _, _ in draftName = store.active.name }
         .onDisappear { if store.hasDraft { store.discardDraft() } }   // an unsaved edit never outlives this screen
+    }
+
+    private func resetAll() {
+        store.resetAll()
+        appearance = 0
+        if UIApplication.shared.alternateIconName != nil {
+            Task { do { try await UIApplication.shared.setAlternateIconName(nil) } catch { errors.report(error, doing: "Couldn’t restore the icon") } }
+        }
+        Haptics.warning()
     }
 
     // MARK: Mode
 
     private var modeCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Appearance")
+            SectionHeader(title: "Appearance mode")
             Picker("Appearance", selection: $appearance) {
                 Text("System").tag(0); Text("Light").tag(1); Text("Dark").tag(2)
             }
             .pickerStyle(.segmented)
             .onChange(of: appearance) { _, v in editScheme = v == 2 ? .dark : v == 1 ? .light : systemScheme }
-            Text("Every palette has a light and a dark version.").font(.footnote).foregroundStyle(Theme.inkSecondary)
+            Text("System follows your iPhone. Every palette has a light and a dark version.").font(.footnote).foregroundStyle(Theme.inkSecondary)
         }
         .glass(padding: 18)
     }
@@ -97,7 +138,7 @@ struct ThemeEditorView: View {
 
     private var palettesCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Palettes")
+            SectionHeader(title: "Colour themes")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(store.palettes) { p in
@@ -130,38 +171,50 @@ struct ThemeEditorView: View {
     // MARK: Colours
 
     private var coloursCard: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let fields = showAdvanced ? Field.allCases : Field.allCases.filter { !$0.isOptional }
+        return VStack(alignment: .leading, spacing: 4) {
             HStack {
-                SectionHeader(title: "Colours")
+                SectionHeader(title: "Custom colours")
                 Spacer()
                 Picker("Editing", selection: $editScheme) { Text("Light").tag(ColorScheme.light); Text("Dark").tag(ColorScheme.dark) }
                     .pickerStyle(.segmented).frame(width: 140)
             }
             .padding(.bottom, 8)
-            ForEach(Array(Field.allCases.enumerated()), id: \.element) { i, f in
+            ForEach(Array(fields.enumerated()), id: \.element) { i, f in
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(f.label).font(.body).foregroundStyle(Theme.ink)
-                        Text(f.detail).font(.caption).foregroundStyle(Theme.inkSecondary)
+                        Text(f.isOptional && !f.isOverridden(colors) ? "Automatic" : f.detail).font(.caption).foregroundStyle(Theme.inkSecondary)
                     }
                     Spacer()
+                    if f.isOverridden(colors) {
+                        Button("Auto") { store.edit { p in updateColors(&p) { f.set(&$0, nil) } } }
+                            .font(.caption.weight(.medium)).foregroundStyle(Theme.accent).buttonStyle(PressableStyle())
+                    }
                     ColorPicker(f.label, selection: binding(f), supportsOpacity: false).labelsHidden()
                 }
                 .padding(.vertical, 8)
-                if i < Field.allCases.count - 1 { Hairline() }
+                if i < fields.count - 1 { Hairline() }
             }
+            Button { withAnimation(Theme.easeOut(0.2)) { showAdvanced.toggle() } } label: {
+                Label(showAdvanced ? "Fewer colours" : "Text and border colours", systemImage: showAdvanced ? "chevron.up" : "chevron.down")
+                    .font(.footnote.weight(.medium)).foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(PressableStyle()).padding(.top, 8)
         }
         .glass(padding: 18)
     }
 
+    private func updateColors(_ p: inout ThemePalette, _ change: (inout ThemeColors) -> Void) {
+        if editScheme == .dark { change(&p.dark) } else { change(&p.light) }
+    }
+
     private func binding(_ f: Field) -> Binding<Color> {
         Binding(
-            get: { Color(hex: colors[keyPath: f.path]) },
+            get: { Color(hex: f.value(colors)) },
             set: { new in
                 let hex = ColorMath.hex(from: new)
-                store.edit { p in
-                    if editScheme == .dark { p.dark[keyPath: f.path] = hex } else { p.light[keyPath: f.path] = hex }
-                }
+                store.edit { p in updateColors(&p) { f.set(&$0, hex) } }
             })
     }
 
@@ -173,6 +226,7 @@ struct ThemeEditorView: View {
         let c = colors
         return [Check(id: "Text on background", ratio: ColorMath.contrast(c.text, c.background), needed: 4.5),
                 Check(id: "Text on cards", ratio: ColorMath.contrast(c.text, c.surface), needed: 4.5),
+                Check(id: "Secondary text", ratio: ColorMath.contrast(c.textSecondary, c.surface), needed: 4.5),
                 Check(id: "Accent on cards", ratio: ColorMath.contrast(c.accent, c.surface), needed: 3),
                 Check(id: "Text on primary", ratio: ColorMath.contrast(c.onPrimary, c.primary), needed: 4.5)]
     }
@@ -227,18 +281,18 @@ struct ThemeEditorView: View {
 
     private var actionsCard: some View {
         VStack(spacing: 12) {
-            if store.hasDraft {
+            if tab == .theme, store.hasDraft {
                 TextField("Palette name", text: $draftName)
                     .textFieldStyle(.roundedBorder)
                 Button("Save palette") { store.saveDraft(name: draftName); Haptics.success() }
                     .buttonStyle(PrimaryButtonStyle())
                 Button("Discard changes", role: .destructive) { store.discardDraft(); draftName = store.active.name }
                     .font(.subheadline)
-            } else if !store.isPreset(store.active.id) {
+            } else if tab == .theme, !store.isPreset(store.active.id) {
                 Button(role: .destructive) { pendingDelete = store.active } label: { Label("Delete this palette", systemImage: "trash") }
                     .font(.subheadline)
             }
-            Button("Reset theme…", role: .destructive) { confirmReset = true }
+            Button("Reset to default…", role: .destructive) { confirmReset = true }
                 .font(.footnote).foregroundStyle(Theme.inkSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -263,7 +317,7 @@ private struct PaletteChip: View {
                 }
             }
             HStack(spacing: 4) {
-                Text(palette.name).font(.footnote.weight(.medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(palette.name).font(.footnote.weight(.medium)).foregroundStyle(Color(hex: c.text)).lineLimit(1)
                 if selected { Image(systemName: "checkmark.circle.fill").font(.footnote).foregroundStyle(Theme.accent) }
             }
         }

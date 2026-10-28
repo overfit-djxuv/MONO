@@ -51,22 +51,14 @@ struct SettingsView: View {
                                 Circle().fill(c).frame(width: 18, height: 18).overlay(Circle().strokeBorder(Theme.cardLine, lineWidth: 0.5))
                             }
                         }
-                        Text("Theme")
+                        Text("System Theme")
                         Spacer()
                         Text(ThemeStore.shared.selected.name).foregroundStyle(Theme.inkSecondary)
                     }
                 }
-            } footer: { Text("Palettes, your own colours, light and dark, and Liquid Glass intensity.") }
+            } footer: { Text("Colours, light and dark, Liquid Glass and the app icon, all in one place.") }
 
             Section {
-                NavigationLink { AppIconView() } label: {
-                    HStack(spacing: 12) {
-                        IconArtwork(name: AppIconChoice(alternateName: UIApplication.shared.alternateIconName).previewName, size: 30)
-                        Text("App icon")
-                        Spacer()
-                        Text(AppIconChoice(alternateName: UIApplication.shared.alternateIconName).label).foregroundStyle(Theme.inkSecondary)
-                    }
-                }
                 NavigationLink("Categories") { CategoriesView() }
                 NavigationLink { RecurringView() } label: {
                     Label("Recurring transactions", systemImage: "arrow.triangle.2.circlepath")
