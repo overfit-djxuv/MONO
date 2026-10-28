@@ -19,7 +19,7 @@ enum AccountKind: String, Codable, CaseIterable, Identifiable {
     case cash, bank, ewallet, other
     var id: String { rawValue }
     var label: String {
-        switch self { case .cash: "Cash"; case .bank: "Bank account"; case .ewallet: "E-wallet"; case .other: "Other" }
+        switch self { case .cash: "Cash"; case .bank: "Bank"; case .ewallet: "E-wallet"; case .other: "Other" }
     }
     var symbol: String {
         switch self { case .cash: "banknote"; case .bank: "building.columns"; case .ewallet: "iphone"; case .other: "square.stack" }

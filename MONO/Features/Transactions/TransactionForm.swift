@@ -11,6 +11,8 @@ struct TransactionForm: View {
     @Query private var items: [ShoppingItem]
     @Query private var planned: [PlannedExpense]
     @Query(sort: \TransactionRecord.date, order: .reverse) private var history: [TransactionRecord]
+    @Query(sort: \Account.sortOrder) private var allAccounts: [Account]
+    @AppStorage("lastAccountID") private var lastAccountID = ""
 
     @State private var kind: TxKind
     @State private var amountText: String
@@ -18,24 +20,59 @@ struct TransactionForm: View {
     @State private var date: Date
     @State private var title: String
     @State private var notes: String
+    @State private var merchant: String
+    @State private var tagsText: String
+    @State private var accountID: UUID?
+    @State private var toAccountID: UUID?
+    @State private var receivedText = ""
     @State private var showNewCategory = false
     @State private var confirmDelete = false
+    @State private var showDuplicate = false
 
     init(editing: TransactionRecord?, kind: TxKind = .expense) {
         self.editing = editing
         _kind = State(initialValue: editing?.kind ?? kind)
-        _amountText = State(initialValue: Money.editable(editing?.amountCents ?? 0))
         _category = State(initialValue: editing?.category ?? "")
         _date = State(initialValue: editing?.date ?? .now)
         _title = State(initialValue: editing?.title ?? "")
         _notes = State(initialValue: editing?.notes ?? "")
+        _merchant = State(initialValue: editing?.merchant ?? "")
+        _tagsText = State(initialValue: (editing?.tags ?? "").replacingOccurrences(of: ",", with: ", "))
+        _accountID = State(initialValue: editing?.accountID)
+        _toAccountID = State(initialValue: editing?.toAccountID)
+        _amountText = State(initialValue: "")   // filled in onAppear, once the account's currency is known
     }
 
-    private var amount: Int? { Money.parse(amountText).flatMap { $0 > 0 ? $0 : nil } }
+    private var books: Books { Books(accounts: allAccounts, rates: [], transactions: [], entries: []) }   // directory only: cheap, no balances
+    private var pickable: [Account] {
+        // Keep an archived account selectable only while editing a record that already uses it.
+        books.active + allAccounts.filter { $0.isArchived && ($0.id == editing?.accountID || $0.id == editing?.toAccountID) }
+    }
+    private var fromAccount: Account? { books.account(accountID) }
+    private var toAccount: Account? { toAccountID.flatMap { id in allAccounts.first { $0.id == id } } }
+    private var currency: Currency { fromAccount?.currency ?? Money.reporting }
+    private var toCurrency: Currency { toAccount?.currency ?? Money.reporting }
+    private var isTransfer: Bool { kind == .transfer }
+    private var sameCurrency: Bool { fromAccount?.currencyCode == toAccount?.currencyCode }
+
+    private var amount: Int? { Money.parse(amountText, currency: currency).flatMap { $0 > 0 ? $0 : nil } }
+    private var received: Int? {
+        if sameCurrency { return amount }
+        return Money.parse(receivedText, currency: toCurrency).flatMap { $0 > 0 ? $0 : nil }
+    }
     private var kindCategories: [MoneyCategory] { categories.filter { $0.kind == kind } }
-    private var canSave: Bool { amount != nil && !category.isEmpty }
+    private var canSave: Bool {
+        if isTransfer { return amount != nil && received != nil && fromAccount != nil && toAccount != nil && fromAccount?.id != toAccount?.id }
+        return amount != nil && !category.isEmpty
+    }
+    private var impliedRate: String? {
+        guard isTransfer, !sameCurrency, let a = amount, let r = received,
+              let m = CurrencyConverter.impliedMicros(fromMinor: a, from: currency, toMinor: r, to: toCurrency) else { return nil }
+        return "1 \(currency.code) = \(CurrencyConverter.formatRate(m)) \(toCurrency.code)"
+    }
     private var suggestions: [QuickEntry.Suggestion] {
-        QuickEntry.suggestions(matching: title, in: history, limit: 6).filter { $0.title.caseInsensitiveCompare(title) != .orderedSame }
+        guard !isTransfer else { return [] }
+        return QuickEntry.suggestions(matching: title, in: history, limit: 6).filter { $0.title.caseInsensitiveCompare(title) != .orderedSame }
     }
 
     /// Fills the type, category and amount from the last time this description was used.
@@ -43,7 +80,7 @@ struct TransactionForm: View {
         title = s.title
         kind = s.kind
         if categories.contains(where: { $0.kind == s.kind && $0.name == s.category }) { category = s.category }
-        amountText = Money.editable(s.amountCents)
+        amountText = Money.editable(s.amountCents, currency: currency)
         Haptics.tap()
     }
 
@@ -58,24 +95,9 @@ struct TransactionForm: View {
                     .pickerStyle(.segmented)
                     .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                 }
+                if isTransfer { transferSection } else { entrySection }
                 Section {
-                    HStack {
-                        Text("Amount")
-                        AmountField(text: $amountText).accessibilityIdentifier("amountField")
-                    }
-                    if !amountText.isEmpty && amount == nil {
-                        Text("Enter an amount greater than zero.").font(.footnote).foregroundStyle(Theme.danger)
-                    }
-                    Picker("Category", selection: $category) {
-                        ForEach(kindCategories) { c in Label(c.name, systemImage: c.symbol).tag(c.name) }
-                    }
-                    Button { showNewCategory = true } label: {
-                        Label("New category…", systemImage: "plus").font(.subheadline)
-                    }
-                    DatePicker("Date", selection: $date)
-                }
-                Section {
-                    TextField("Description", text: $title).accessibilityIdentifier("descriptionField")
+                    TextField(isTransfer ? "Description (optional)" : "Description", text: $title).accessibilityIdentifier("descriptionField")
                     if editing == nil, !suggestions.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
@@ -97,11 +119,21 @@ struct TransactionForm: View {
                         }
                         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                     }
+                    if !isTransfer {
+                        TextField("Merchant (optional)", text: $merchant)
+                        TextField("Tags (optional), e.g. work, trip", text: $tagsText)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
                     TextField("Notes (optional)", text: $notes, axis: .vertical).lineLimit(1...5)
                 }
                 if editing?.sourceID != nil {
                     Section {
                         Callout(text: "This expense was created from your shopping list or planned expenses. Deleting it lets you record that item again.")
+                    }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+                }
+                if isTransfer {
+                    Section {
+                        Callout(text: "A transfer moves money between your own accounts. It isn’t income or spending, so it never changes your totals.")
                     }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                 }
                 if editing != nil {
@@ -118,19 +150,28 @@ struct TransactionForm: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save", action: save).disabled(!canSave).accessibilityIdentifier("saveTransaction")
+                    Button("Save") { save(confirmedDuplicate: false) }.disabled(!canSave).accessibilityIdentifier("saveTransaction")
                 }
             }
-            .onChange(of: kind) { _, _ in
-                if !kindCategories.contains(where: { $0.name == category }) { category = kindCategories.first?.name ?? "" }
+            .onChange(of: kind) { _, new in
+                if new != .transfer, !kindCategories.contains(where: { $0.name == category }) { category = kindCategories.first?.name ?? "" }
+                if new == .transfer, toAccountID == nil || toAccountID == accountID { toAccountID = pickable.first { $0.id != fromAccount?.id }?.id }
             }
-            .onAppear {
-                if category.isEmpty || !kindCategories.contains(where: { $0.name == category }) && editing == nil {
-                    category = kindCategories.first?.name ?? ""
+            .onChange(of: accountID) { old, new in
+                // Re-express the typed amount only if the currency's decimals no longer fit.
+                if let o = allAccounts.first(where: { $0.id == old }), let n = allAccounts.first(where: { $0.id == new }), o.currencyCode != n.currencyCode {
+                    amountText = AmountField.sanitize(amountText, digits: n.currency.digits)
                 }
             }
+            .onAppear(perform: prepare)
             .sheet(isPresented: $showNewCategory) {
                 NewCategorySheet(kind: kind) { category = $0 }
+            }
+            .alert("Possible duplicate", isPresented: $showDuplicate) {
+                Button("Add anyway") { save(confirmedDuplicate: true) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You already have a \(kind.label.lowercased()) of \(Money.format(amount ?? 0, currency: currency)) with this description on the same day. Add it anyway?")
             }
             .confirmationDialog("Delete this transaction?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
@@ -143,17 +184,118 @@ struct TransactionForm: View {
         .presentationDetents([.large])
     }
 
-    private func save() {
-        guard let cents = amount, !category.isEmpty else { return }
+    // MARK: Sections
+
+    @ViewBuilder private var entrySection: some View {
+        Section {
+            HStack {
+                Text("Amount")
+                AmountField(text: $amountText, currency: currency).accessibilityIdentifier("amountField")
+            }
+            if !amountText.isEmpty && amount == nil {
+                Text("Enter an amount greater than zero.").font(.footnote).foregroundStyle(Theme.danger)
+            }
+            Picker("Category", selection: $category) {
+                ForEach(kindCategories) { c in Label(c.name, systemImage: c.symbol).tag(c.name) }
+            }
+            Button { showNewCategory = true } label: {
+                Label("New category…", systemImage: "plus").font(.subheadline)
+            }
+            if pickable.count > 1 {
+                Picker("Account", selection: Binding(get: { accountID ?? books.defaultAccount?.id }, set: { accountID = $0 })) {
+                    ForEach(pickable) { a in Label("\(a.name) · \(a.currencyCode)", systemImage: a.kind.symbol).tag(Optional(a.id)) }
+                }
+            }
+            DatePicker("Date", selection: $date)
+        }
+    }
+
+    @ViewBuilder private var transferSection: some View {
+        Section {
+            Picker("From", selection: Binding(get: { accountID ?? books.defaultAccount?.id }, set: { accountID = $0 })) {
+                ForEach(pickable) { a in Label("\(a.name) · \(a.currencyCode)", systemImage: a.kind.symbol).tag(Optional(a.id)) }
+            }
+            Picker("To", selection: $toAccountID) {
+                Text("Choose…").tag(UUID?.none)
+                ForEach(pickable.filter { $0.id != (accountID ?? books.defaultAccount?.id) }) { a in
+                    Label("\(a.name) · \(a.currencyCode)", systemImage: a.kind.symbol).tag(Optional(a.id))
+                }
+            }
+            HStack {
+                Text(sameCurrency ? "Amount" : "Sent")
+                AmountField(text: $amountText, currency: currency).accessibilityIdentifier("amountField")
+            }
+            if !sameCurrency, toAccount != nil {
+                HStack {
+                    Text("Received")
+                    AmountField(text: $receivedText, currency: toCurrency)
+                }
+                if let impliedRate { Text("Rate used for this transfer: \(impliedRate)").font(.footnote).foregroundStyle(Theme.inkSecondary) }
+            }
+            if pickable.count < 2 {
+                Text("Add a second account in Settings ▸ Accounts to make a transfer.").font(.footnote).foregroundStyle(Theme.warning)
+            }
+            DatePicker("Date", selection: $date)
+        }
+    }
+
+    // MARK: Actions
+
+    private func prepare() {
+        if accountID == nil {
+            accountID = allAccounts.first { $0.id.uuidString == lastAccountID && !$0.isArchived }?.id ?? books.defaultAccount?.id
+        }
+        if let e = editing {
+            amountText = Money.editable(e.amountCents, currency: currency)
+            if e.kind == .transfer { receivedText = Money.editable(e.toAmountCents, currency: toCurrency) }
+        }
+        if !isTransfer, category.isEmpty || !kindCategories.contains(where: { $0.name == category }) && editing == nil {
+            category = kindCategories.first?.name ?? ""
+        }
+    }
+
+    private func save(confirmedDuplicate: Bool) {
+        guard canSave, let cents = amount else { return }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let from = fromAccount
+
+        if isTransfer {
+            guard let from, let to = toAccount, let receivedCents = received else { return }
+            do {
+                if let t = editing {
+                    try Ledger.validateTransfer(from: from, to: to, sentCents: cents, receivedCents: receivedCents, allowArchived: true)
+                    t.kind = .transfer; t.category = ""; t.merchant = ""; t.tags = ""
+                    t.amountCents = cents; t.toAmountCents = receivedCents; t.accountID = from.id; t.toAccountID = to.id
+                    t.date = date; t.title = cleanTitle; t.notes = notes
+                    try context.save()
+                } else {
+                    try Ledger.createTransfer(from: from, to: to, sentCents: cents, receivedCents: receivedCents,
+                                              date: date, title: cleanTitle, notes: notes, in: context)
+                }
+                lastAccountID = from.id.uuidString
+                Haptics.success(); dismiss()
+            } catch { errors.report(error, doing: "Couldn’t save the transfer") }
+            return
+        }
+
+        guard !category.isEmpty else { return }
+        let cleanMerchant = merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !confirmedDuplicate,
+           Ledger.possibleDuplicate(kind: kind, cents: cents, date: date, title: cleanTitle, merchant: cleanMerchant, accountID: from?.id,
+                                    defaultAccountID: books.defaultAccount?.id, excluding: editing?.id, in: history) != nil {
+            showDuplicate = true; return
+        }
+        let tags = Tags.normalize(tagsText)
         if let t = editing {
             t.amountCents = cents; t.kind = kind; t.category = category
             t.date = date; t.title = cleanTitle; t.notes = notes
+            t.accountID = from?.id; t.merchant = cleanMerchant; t.tags = tags
+            t.toAccountID = nil; t.toAmountCents = 0
         } else {
-            context.insert(TransactionRecord(amountCents: cents, kind: kind, category: category,
-                                             date: date, title: cleanTitle, notes: notes))
+            context.insert(TransactionRecord(amountCents: cents, kind: kind, category: category, date: date, title: cleanTitle,
+                                             notes: notes, accountID: from?.id, merchant: cleanMerchant, tags: tags))
         }
-        do { try context.save(); Haptics.success(); dismiss() }
+        do { try context.save(); lastAccountID = from?.id.uuidString ?? ""; Haptics.success(); dismiss() }
         catch { errors.report(error, doing: "Couldn’t save") }
     }
 }

@@ -331,7 +331,7 @@ enum CSVImport {
     // MARK: Apply
 
     /// Adds the planned records in one save. Rolls back completely on failure.
-    static func apply(_ plan: Plan, categories: [MoneyCategory], in context: ModelContext) throws {
+    static func apply(_ plan: Plan, categories: [MoneyCategory], accountID: UUID? = nil, in context: ModelContext) throws {
         do {
             var order = (categories.map(\.sortOrder).max() ?? 0) + 1
             for c in plan.newCategories {
@@ -340,7 +340,7 @@ enum CSVImport {
             }
             for r in plan.rows {
                 context.insert(TransactionRecord(amountCents: r.cents, kind: r.kind, category: r.category,
-                                                 date: r.date, title: r.title, notes: r.notes))
+                                                 date: r.date, title: r.title, notes: r.notes, accountID: accountID))
             }
             try context.save()
         } catch {

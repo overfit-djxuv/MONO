@@ -76,9 +76,10 @@ struct RootView: View {
             Button("OK", role: .cancel) {}
         } message: { Text(errors.message ?? "") }
         .task {
-            if lock.isLocked { await lock.unlock() }
+            // Account setup doesn't display anything, so it runs before the lock prompt.
             DefaultCategories.seedIfNeeded(context)
             migrateAccounts()
+            if lock.isLocked { await lock.unlock() }
             postRecurring()
             #if DEBUG
             DemoData.loadIfRequested(context)

@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-enum OverviewRoute: Hashable { case analytics, settings, appIcon, history, theme }
+enum OverviewRoute: Hashable { case analytics, settings, appIcon, history, theme, accounts }
 
 struct OverviewView: View {
     @Binding var tab: AppTab
@@ -13,6 +13,8 @@ struct OverviewView: View {
     @Query private var limits: [BudgetLimit]
     @Query(sort: \PlannedExpense.dueDate) private var planned: [PlannedExpense]
     @Query(sort: \MoneyCategory.sortOrder) private var categories: [MoneyCategory]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
     @AppStorage("openingBalanceCents") private var opening = 0
     @AppStorage("lastBackupAt") private var lastBackupAt = 0.0
 
@@ -22,20 +24,22 @@ struct OverviewView: View {
     private static var initialPath: [OverviewRoute] {
         #if DEBUG
         if let i = CommandLine.arguments.firstIndex(of: "-MONOScreen"), i + 1 < CommandLine.arguments.count {
-            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; default: break }
+            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; default: break }
         }
         #endif
         return []
     }
 
     private var month: MonthKey { MonthKey(.now) }
+    private var books: Books { Books(accounts: accounts, rates: rates, transactions: txs, entries: entries, legacyOpening: opening) }
 
     var body: some View {
-        let cash = FinanceEngine.availableCash(opening: opening, transactions: txs, entries: entries)
+        let books = self.books
+        let cash = books.overview.total
         let saved = FinanceEngine.savedTotal(entries: entries)
-        let t = FinanceEngine.totals(txs, in: month)
+        let t = FinanceEngine.totals(books.reported, in: month)
         let budget = FinanceEngine.budgetSummary(month: month, totalLimit: monthBudgets.first { $0.monthKey == month.string }?.totalCents,
-                                                 limits: limits, transactions: txs)
+                                                 limits: limits, transactions: books.reported)
         let rate = FinanceEngine.savingsRate(income: t.income, expense: t.expense)
 
         NavigationStack(path: $path) {
@@ -51,6 +55,14 @@ struct OverviewView: View {
                         .buttonStyle(PressableStyle())
                     }
                     hero(cash: cash, saved: saved).entrance(0)
+                    if !books.overview.unconverted.isEmpty || books.skipped > 0 {
+                        Button { path.append(.accounts) } label: {
+                            Callout(text: "Some money is in a currency with no exchange rate, so it isn’t in these totals. Tap to add a rate.",
+                                    tone: .warning, symbol: "arrow.left.arrow.right")
+                        }
+                        .buttonStyle(PressableStyle())
+                    }
+                    if books.hasSeveralAccounts { accountsCard(books).card().entrance(1) }
                     metrics(income: t.income, expense: t.expense, budget: budget, rate: rate).entrance(1)
                     cashFlow.card().entrance(2)
                     spending.card().entrance(3)
@@ -73,7 +85,7 @@ struct OverviewView: View {
             .monoScreen()
             .navigationTitle("Overview")
             .navigationDestination(for: OverviewRoute.self) { r in
-                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: AppIconView(); case .history: VersionHistoryView(); case .theme: ThemeEditorView() }
+                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: AppIconView(); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -107,9 +119,9 @@ struct OverviewView: View {
             }
             .foregroundStyle(Theme.onPrimary.opacity(0.74))
             .padding(.top, 2)
-            if opening == 0 && txs.isEmpty {
-                Button { path.append(.settings) } label: {
-                    Text("Set your opening balance to start from what you have today")
+            if cash == 0 && txs.isEmpty {
+                Button { path.append(.accounts) } label: {
+                    Text("Add your starting balance to see what you have today")
                         .font(.footnote.weight(.medium)).foregroundStyle(Theme.onPrimary)
                         .underline(true, color: Theme.onPrimary.opacity(0.4))
                 }
@@ -170,12 +182,37 @@ struct OverviewView: View {
         .accessibilityElement(children: .combine)
     }
 
+    private func accountsCard(_ books: Books) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SectionHeader(title: "Accounts", trailing: "Manage") { path.append(.accounts) }.padding(.bottom, 6)
+            ForEach(Array(books.active.enumerated()), id: \.element.id) { i, a in
+                HStack(spacing: 12) {
+                    CategoryGlyph(symbol: a.kind.symbol, tint: Theme.inkSecondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(a.name).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
+                        if a.currencyCode != Money.reporting.code {
+                            Text(books.reportingBalance(of: a).map { "≈ \(Money.format($0))" } ?? "No exchange rate yet")
+                                .font(.caption).foregroundStyle(books.needsRate(a) ? Theme.warning : Theme.inkSecondary)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Text(Money.format(books.balance(of: a), currency: a.currency)).font(.figure(16)).foregroundStyle(Theme.ink)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+                .padding(.vertical, 6)
+                .accessibilityElement(children: .combine)
+                if i < books.active.count - 1 { Hairline() }
+            }
+        }
+    }
+
     // MARK: Charts
 
     private var cashFlow: some View {
-        let first = FinanceEngine.firstRecordMonth(transactions: txs)
+        let reported = books.reported
+        let first = FinanceEngine.firstRecordMonth(transactions: reported)
         let start = first.map { max($0, month.adding(-5)) } ?? month
-        let months = FinanceEngine.monthlySummaries(txs, range: start.months(through: month))
+        let months = FinanceEngine.monthlySummaries(reported, range: start.months(through: month))
         return VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Cash flow", trailing: "Details") { path.append(.analytics) }
             if txs.isEmpty {
@@ -192,7 +229,7 @@ struct OverviewView: View {
     }
 
     private var spending: some View {
-        let slices = FinanceEngine.expensesByCategory(txs, in: month...month)
+        let slices = FinanceEngine.expensesByCategory(books.reported, in: month...month)
         return VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Spending by category")
             if slices.isEmpty {
@@ -250,7 +287,7 @@ struct OverviewView: View {
                            actionTitle: "Add transaction") { showAdd = true }
             }
             ForEach(Array(txs.prefix(5).enumerated()), id: \.element.id) { i, tx in
-                TransactionRow(tx: tx, symbol: categories.symbol(for: tx.category))
+                TransactionRow(tx: tx, symbol: categories.symbol(for: tx.category), directory: AccountDirectory(accounts))
                 if i < min(txs.count, 5) - 1 { Hairline() }
             }
         }

@@ -163,31 +163,35 @@ struct StatusChip: View {
 struct AmountField: View {
     @Binding var text: String
     var placeholder = "0.00"
+    /// The currency being typed; nil means the reporting currency. Decides the symbol and how many decimals are allowed.
+    var currency: Currency? = nil
+
+    private var cur: Currency { currency ?? Money.reporting }
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(Money.symbol).foregroundStyle(Theme.inkSecondary)
-            TextField(placeholder, text: $text)
-                .keyboardType(.decimalPad)
+            Text(currency == nil ? Money.symbol : cur.symbol).foregroundStyle(Theme.inkSecondary)
+            TextField(cur.digits == 0 ? "0" : placeholder, text: $text)
+                .keyboardType(cur.digits == 0 ? .numberPad : .decimalPad)
                 .multilineTextAlignment(.trailing)
                 .font(.figure(17))
         }
         .onChange(of: text) { _, v in
-            let s = Self.sanitize(v)
+            let s = Self.sanitize(v, digits: cur.digits)
             if s != v { text = s }
         }
     }
 
-    static func sanitize(_ input: String) -> String {
+    static func sanitize(_ input: String, digits: Int = 2) -> String {
         var out = ""
         var seenDot = false
         var frac = 0
         var whole = 0
         for ch in input.replacingOccurrences(of: ",", with: ".") {
             if ch.isASCII && ch.isNumber {
-                if seenDot { if frac < 2 { out.append(ch); frac += 1 } }
+                if seenDot { if frac < digits { out.append(ch); frac += 1 } }
                 else if whole < 11 { out.append(ch); whole += 1 }
-            } else if ch == "." && !seenDot { seenDot = true; out.append(ch) }
+            } else if ch == "." && !seenDot && digits > 0 { seenDot = true; out.append(ch) }
         }
         return out
     }

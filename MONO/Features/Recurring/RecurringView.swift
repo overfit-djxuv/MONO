@@ -111,7 +111,7 @@ struct RecurringForm: View {
             Form {
                 Group {
                 Section {
-                    Picker("Type", selection: $kind) { ForEach(TxKind.allCases) { Text($0.label).tag($0) } }
+                    Picker("Type", selection: $kind) { ForEach(TxKind.categoryKinds) { Text($0.label).tag($0) } }
                         .pickerStyle(.segmented)
                         .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                 }

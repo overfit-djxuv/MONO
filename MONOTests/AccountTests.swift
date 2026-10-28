@@ -320,3 +320,14 @@ final class BackupV2Tests: XCTestCase {
         XCTAssertThrowsError(try BackupService.validate(bad), "a rate from a currency to itself")
     }
 }
+
+final class TransferSurfacesTests: XCTestCase {
+    func testTransfersAreNeverOfferedAsCategoryOrRecurringKindsOrSuggestions() {
+        XCTAssertEqual(TxKind.categoryKinds, [.income, .expense])
+        let t = TransactionRecord(amountCents: 100, kind: .transfer, category: "", date: date(2026, 3, 1), title: "Top up")
+        XCTAssertTrue(QuickEntry.suggestions(matching: "", in: [t]).isEmpty)
+    }
+    func testAccountKindLabelsAreShortEnoughForARow() {
+        XCTAssertTrue(AccountKind.allCases.allSatisfy { $0.label.count <= 8 })
+    }
+}

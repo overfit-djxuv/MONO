@@ -9,7 +9,9 @@ enum AnalyticsRange: String, CaseIterable, Identifiable {
 }
 
 struct AnalyticsView: View {
-    @Query private var txs: [TransactionRecord]
+    @Query private var rawTxs: [TransactionRecord]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
     @Query private var entries: [GoalEntry]
     @Query private var goals: [SavingsGoal]
     @Query private var costs: [TripCost]
@@ -21,6 +23,8 @@ struct AnalyticsView: View {
     @State private var tripID: UUID?
 
     private var now: MonthKey { MonthKey(.now) }
+    /// Every figure here is in the reporting currency: foreign-currency records are converted with your own rates, and transfers are excluded.
+    private var txs: [TransactionRecord] { Books(accounts: accounts, rates: rates, transactions: rawTxs, entries: []).reported }
 
     /// Only months from the first real record onward. Nothing earlier is shown or implied.
     private var monthRange: [MonthKey] {

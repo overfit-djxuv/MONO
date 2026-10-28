@@ -10,6 +10,8 @@ struct ShoppingView: View {
     @Query private var monthBudgets: [MonthBudget]
     @Query private var limits: [BudgetLimit]
     @Query(sort: \MoneyCategory.sortOrder) private var categories: [MoneyCategory]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
     @AppStorage("openingBalanceCents") private var opening = 0
 
     @State private var list: ListKind = .grocery
@@ -30,10 +32,11 @@ struct ShoppingView: View {
     private var available: (label: String, cents: Int)? {
         let month = MonthKey(.now)
         if list == .wishlist {
-            return ("Available cash", FinanceEngine.availableCash(opening: opening, transactions: txs, entries: entries))
+            let books = Books(accounts: accounts, rates: rates, transactions: txs, entries: entries, legacyOpening: opening)
+            return ("Available cash", books.overview.total)
         }
         let b = FinanceEngine.budgetSummary(month: month, totalLimit: monthBudgets.first { $0.monthKey == month.string }?.totalCents,
-                                            limits: limits, transactions: txs)
+                                            limits: limits, transactions: Books(accounts: accounts, rates: rates, transactions: txs, entries: []).reported)
         if let l = b.lines.first(where: { $0.category == "Groceries" }) { return ("Groceries budget left", max(l.remaining, 0)) }
         if let r = b.remaining { return ("Monthly budget left", max(r, 0)) }
         return nil

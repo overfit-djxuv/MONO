@@ -24,27 +24,43 @@ struct TransactionsView: View {
     @Query private var items: [ShoppingItem]
     @Query private var planned: [PlannedExpense]
     @Query(sort: \MoneyCategory.sortOrder) private var categories: [MoneyCategory]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
 
     @State private var search = ""
     @State private var kindFilter: TxKind?
     @State private var categoryFilter: String?
+    @State private var accountFilter: UUID?
+    @State private var tagFilter: String?
     @State private var range: DateRangeFilter = .all
     @State private var showAdd = false
     @State private var showCSV = false
     @State private var editing: TransactionRecord?
     @State private var pendingDelete: TransactionRecord?
 
-    private var filtersActive: Bool { kindFilter != nil || categoryFilter != nil || range != .all }
+    private var directory: AccountDirectory { AccountDirectory(accounts) }
+    private var allTags: [String] { Array(Set(txs.flatMap { Tags.list(from: $0.tags) })).sorted() }
+    private var filtersActive: Bool {
+        kindFilter != nil || categoryFilter != nil || accountFilter != nil || tagFilter != nil || range != .all
+    }
 
     private var filtered: [TransactionRecord] {
         let q = search.trimmingCharacters(in: .whitespaces)
+        let dir = directory
         return txs.filter { t in
-            (kindFilter == nil || t.kind == kindFilter)
+            let from = dir.account(t.accountID), to = t.toAccountID.flatMap { dir.byID[$0] }
+            return (kindFilter == nil || t.kind == kindFilter)
                 && (categoryFilter == nil || t.category == categoryFilter)
+                && (accountFilter == nil || from?.id == accountFilter || to?.id == accountFilter)
+                && (tagFilter == nil || Tags.list(from: t.tags).contains(tagFilter!))
                 && range.contains(t.date)
                 && (q.isEmpty || t.title.localizedCaseInsensitiveContains(q)
                     || t.category.localizedCaseInsensitiveContains(q)
-                    || t.notes.localizedCaseInsensitiveContains(q))
+                    || t.merchant.localizedCaseInsensitiveContains(q)
+                    || t.tags.localizedCaseInsensitiveContains(q)
+                    || t.notes.localizedCaseInsensitiveContains(q)
+                    || (from?.name.localizedCaseInsensitiveContains(q) ?? false)
+                    || (to?.name.localizedCaseInsensitiveContains(q) ?? false))
         }
     }
 
@@ -71,7 +87,7 @@ struct TransactionsView: View {
                     EmptyState(symbol: "magnifyingglass", title: "No matches",
                                message: "Nothing fits the current search or filters.",
                                actionTitle: filtersActive ? "Clear filters" : nil) {
-                        kindFilter = nil; categoryFilter = nil; range = .all
+                        kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; range = .all
                     }
                     .frame(maxHeight: .infinity)
                 } else {
@@ -105,7 +121,7 @@ struct TransactionsView: View {
                     catch { errors.report(error, doing: "Couldn’t delete") }
                 }
             } message: { t in
-                Text("\(t.title.isEmpty ? t.category : t.title) · \(Money.format(t.amountCents)). Balances update immediately.")
+                Text("\(t.title.isEmpty ? (t.kind == .transfer ? "Transfer" : t.category) : t.title) · \(Money.format(t.amountCents, currency: directory.currency(of: t))). Balances update immediately.")
             }
         }
     }
@@ -118,7 +134,7 @@ struct TransactionsView: View {
             ForEach(grouped, id: \.day) { group in
                 Section {
                     ForEach(group.items) { t in
-                        Button { editing = t } label: { TransactionRow(tx: t, symbol: categories.symbol(for: t.category)) }
+                        Button { editing = t } label: { TransactionRow(tx: t, symbol: categories.symbol(for: t.category), directory: directory) }
                             .buttonStyle(PressableStyle())
                             .listRowBackground(GlassRowBackground())
                             .listRowSeparatorTint(Theme.line)
@@ -144,13 +160,21 @@ struct TransactionsView: View {
     }
 
     private var summaryRow: some View {
-        let income = filtered.filter { $0.kind == .income }.reduce(0) { $0 + $1.amountCents }
-        let expense = filtered.filter { $0.kind == .expense }.reduce(0) { $0 + $1.amountCents }
-        return HStack(spacing: 10) {
-            Metric(label: "Income", value: Money.format(income), tint: Theme.income)
-            Metric(label: "Expenses", value: Money.format(expense))
-            Metric(label: "\(filtered.count) \(filtered.count == 1 ? "item" : "items")", value: Money.format(income - expense, signed: true),
-                   tint: Theme.inkSecondary)
+        // Totals are in the reporting currency; foreign-currency records are converted with your rates, transfers are excluded.
+        let b = Books(accounts: accounts, rates: rates, transactions: filtered, entries: [])
+        let income = b.reported.filter { $0.kind == .income }.reduce(0) { $0 + $1.amountCents }
+        let expense = b.reported.filter { $0.kind == .expense }.reduce(0) { $0 + $1.amountCents }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Metric(label: "Income", value: Money.format(income), tint: Theme.income)
+                Metric(label: "Expenses", value: Money.format(expense))
+                Metric(label: "\(filtered.count) \(filtered.count == 1 ? "item" : "items")", value: Money.format(income - expense, signed: true),
+                       tint: Theme.inkSecondary)
+            }
+            if b.skipped > 0 {
+                Text("\(b.skipped) \(b.skipped == 1 ? "record is" : "records are") in a currency with no exchange rate, so \(b.skipped == 1 ? "it isn’t" : "they aren’t") in these totals.")
+                    .font(.caption).foregroundStyle(Theme.warning)
+            }
         }
         .padding(.vertical, 6)
     }
@@ -168,8 +192,20 @@ struct TransactionsView: View {
                 Text("All categories").tag(String?.none)
                 ForEach(categories) { Text($0.name).tag(String?.some($0.name)) }
             }
+            if directory.showNames {
+                Picker("Account", selection: $accountFilter) {
+                    Text("All accounts").tag(UUID?.none)
+                    ForEach(accounts.filter { !$0.isArchived }) { Text($0.name).tag(UUID?.some($0.id)) }
+                }
+            }
+            if !allTags.isEmpty {
+                Picker("Tag", selection: $tagFilter) {
+                    Text("All tags").tag(String?.none)
+                    ForEach(allTags, id: \.self) { Text("#\($0)").tag(String?.some($0)) }
+                }
+            }
             if filtersActive {
-                Button("Clear filters", role: .destructive) { kindFilter = nil; categoryFilter = nil; range = .all }
+                Button("Clear filters", role: .destructive) { kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; range = .all }
             }
         } label: {
             Image(systemName: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
@@ -181,24 +217,64 @@ struct TransactionsView: View {
 struct TransactionRow: View {
     let tx: TransactionRecord
     let symbol: String
+    var directory: AccountDirectory? = nil
+
+    private var from: Account? { directory?.account(tx.accountID) }
+    private var to: Account? { tx.toAccountID.flatMap { directory?.byID[$0] } }
+    private var currency: Currency { from?.currency ?? Money.reporting }
+    private var showAccount: Bool { directory?.showNames ?? false }
+
+    private var heading: String {
+        if tx.kind == .transfer { return tx.title.isEmpty ? "Transfer" : tx.title }
+        if !tx.merchant.isEmpty { return tx.merchant }
+        return tx.title.isEmpty ? tx.category : tx.title
+    }
+
+    private var subtitle: String {
+        let time = tx.date.formatted(date: .omitted, time: .shortened)
+        var parts: [String] = []
+        if tx.kind == .transfer {
+            parts.append("\(from?.name ?? "?") → \(to?.name ?? "?")")
+        } else {
+            if !tx.merchant.isEmpty, !tx.title.isEmpty { parts.append(tx.title) } else if !tx.title.isEmpty || !tx.merchant.isEmpty { parts.append(tx.category) }
+            if showAccount, let from { parts.append(from.name) }
+            let tags = Tags.list(from: tx.tags)
+            if !tags.isEmpty { parts.append(tags.prefix(3).map { "#\($0)" }.joined(separator: " ")) }
+        }
+        parts.append(time)
+        return parts.joined(separator: " · ")
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            CategoryGlyph(symbol: symbol, tint: tx.kind == .income ? Theme.income : Theme.inkSecondary)
+            CategoryGlyph(symbol: tx.kind == .transfer ? "arrow.left.arrow.right" : symbol,
+                          tint: tx.kind == .income ? Theme.income : Theme.inkSecondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(tx.title.isEmpty ? tx.category : tx.title)
-                    .font(.body).foregroundStyle(Theme.ink).lineLimit(1)
-                Text(tx.title.isEmpty ? tx.date.short : "\(tx.category) · \(tx.date.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
+                Text(heading).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(Money.format(tx.kind == .income ? tx.amountCents : -tx.amountCents, signed: true))
-                .font(.figure(16))
-                .foregroundStyle(tx.kind == .income ? Theme.income : Theme.ink)
-                .lineLimit(1).minimumScaleFactor(0.8)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(amountText)
+                    .font(.figure(16))
+                    .foregroundStyle(tx.kind == .income ? Theme.income : (tx.kind == .transfer ? Theme.inkSecondary : Theme.ink))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                if tx.kind == .transfer, let to, to.currencyCode != from?.currencyCode {
+                    Text("→ \(Money.format(tx.toAmountCents, currency: to.currency))").font(.caption).foregroundStyle(Theme.inkSecondary)
+                }
+            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+
+    /// Shown in the account's own currency, so a dollar account never looks like ringgit.
+    private var amountText: String {
+        switch tx.kind {
+        case .income: Money.format(tx.amountCents, signed: true, currency: currency)
+        case .expense: Money.format(-tx.amountCents, signed: true, currency: currency)
+        case .transfer: Money.format(tx.amountCents, currency: currency)
+        }
     }
 }

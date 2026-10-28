@@ -18,7 +18,7 @@ enum QuickEntry {
         var prefix: [Suggestion] = [], contains: [Suggestion] = []
         for t in history.sorted(by: { $0.date > $1.date }) {
             let title = t.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, t.sourceID == nil else { continue }
+            guard !title.isEmpty, t.sourceID == nil, t.kind != .transfer else { continue }
             let s = Suggestion(title: title, kind: t.kind, category: t.category, amountCents: t.amountCents)
             guard seen.insert(s.id).inserted else { continue }
             let lower = title.lowercased()

@@ -6,8 +6,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(ErrorCenter.self) private var errors
     @Query private var txs: [TransactionRecord]
-    @AppStorage("openingBalanceCents") private var opening = 0
-    @AppStorage("currencySymbol") private var symbol = "RM"
+    @Query private var accountList: [Account]
     @AppStorage("lastBackupAt") private var lastBackupAt = 0.0
     @AppStorage(AppLock.enabledKey) private var lockEnabled = false
     @AppStorage(Reminders.enabledKey) private var remindersEnabled = false
@@ -16,7 +15,6 @@ struct SettingsView: View {
     @Query private var limits: [BudgetLimit]
     @Environment(AppLock.self) private var lock
 
-    @State private var openingText = ""
     @State private var exportURL: URL?
     @State private var backupDoc: BackupDocument?
     @State private var showBackupExporter = false
@@ -29,31 +27,20 @@ struct SettingsView: View {
     @State private var confirmErase = false
     @State private var confirmEraseFinal = false
     @State private var working = false
-    @FocusState private var focusOpening: Bool
 
     var body: some View {
         Form {
             Group {
             Section {
-                HStack {
-                    Text("Opening balance")
-                    TextField("0.00", text: $openingText)
-                        .keyboardType(.decimalPad).multilineTextAlignment(.trailing).font(.figure(17))
-                        .focused($focusOpening)
-                        .onChange(of: openingText) { _, v in
-                            let s = AmountField.sanitize(v)
-                            if s != v { openingText = s }
-                        }
-                        .accessibilityIdentifier("openingBalance")
-                }
-                HStack {
-                    Text("Currency symbol")
-                    TextField("RM", text: $symbol).multilineTextAlignment(.trailing)
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                        .onChange(of: symbol) { _, v in if v.count > 4 { symbol = String(v.prefix(4)) } }
+                NavigationLink { AccountsView() } label: {
+                    HStack(spacing: 12) {
+                        Label("Accounts & currency", systemImage: "wallet.pass")
+                        Spacer()
+                        Text("\(accountsCount) \(accountsCount == 1 ? "account" : "accounts") · \(Money.reporting.code)").foregroundStyle(Theme.inkSecondary)
+                    }
                 }
             } header: { Text("Money") } footer: {
-                Text("Available cash = opening balance + income − expenses − money moved into goals. Enter what you have today and MONO tracks it from there.")
+                Text("Cash, bank accounts and e-wallets, transfers between them, your reporting currency and exchange rates. Your balance is each account’s starting balance + income − spending ± transfers − money moved into goals.")
             }
 
             Section {
@@ -165,12 +152,6 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden).monoScreen()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { focusOpening = false } }
-        }
-        .onAppear { openingText = Money.editable(opening) }
-        .onChange(of: focusOpening) { _, focused in if !focused { commitOpening() } }
-        .onDisappear { commitOpening() }
         .fileExporter(isPresented: $showBackupExporter, document: backupDoc, contentType: .json,
                       defaultFilename: "MONO-backup-\(stamp())") { result in
             backupDoc = nil
@@ -198,7 +179,7 @@ struct SettingsView: View {
         } message: { Text("This removes every transaction, budget, list and goal from this iPhone.") }
         .alert("Erase everything?", isPresented: $confirmEraseFinal) {
             Button("Erase", role: .destructive) {
-                do { try Ledger.eraseEverything(in: context); openingText = ""; exportURL = nil; Haptics.warning() }
+                do { try Ledger.eraseEverything(in: context); exportURL = nil; Haptics.warning() }
                 catch { errors.report(error, doing: "Couldn’t erase data") }
             }
             Button("Cancel", role: .cancel) {}
@@ -206,10 +187,7 @@ struct SettingsView: View {
         .overlay { if working { ProgressView().controlSize(.large) } }
     }
 
-    private func commitOpening() {
-        let cents = openingText.isEmpty ? 0 : (Money.parse(openingText) ?? opening)
-        if cents != opening { opening = cents }
-    }
+    private var accountsCount: Int { accountList.filter { !$0.isArchived }.count }
 
     // MARK: Export
 
@@ -256,9 +234,8 @@ struct SettingsView: View {
     }
 
     private func exportBackup() {
-        commitOpening()
         do {
-            let file = try BackupService.snapshot(context: context, openingBalanceCents: opening, currencySymbol: Money.symbol)
+            let file = try BackupService.snapshot(context: context, openingBalanceCents: UserDefaults.standard.integer(forKey: "openingBalanceCents"), currencySymbol: Money.symbol)
             backupDoc = BackupDocument(data: try BackupService.encode(file))
             showBackupExporter = true
         } catch { errors.report(error, doing: "Couldn’t create backup") }
@@ -315,7 +292,6 @@ struct SettingsView: View {
         pendingImport = nil
         do {
             try BackupService.replaceAll(with: file, in: context)
-            openingText = Money.editable(file.openingBalanceCents)
             Haptics.success()
         } catch { errors.report(error, doing: "Restore failed — your existing data was kept") }
     }
@@ -331,7 +307,7 @@ struct CategoriesView: View {
     var body: some View {
         List {
             Group {
-            ForEach(TxKind.allCases) { kind in
+            ForEach(TxKind.categoryKinds) { kind in
                 Section(kind == .expense ? "Expense" : "Income") {
                     ForEach(categories.filter { $0.kind == kind }) { c in
                         HStack(spacing: 12) {

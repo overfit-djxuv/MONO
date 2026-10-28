@@ -80,13 +80,17 @@ enum Ledger {
     /// Moves money between two of your accounts. Recorded as ONE transfer, so it can never be counted as income or spending,
     /// and the two balances always change by matching amounts. For different currencies the amount received is explicit,
     /// which fixes the exchange rate used for that transfer.
+    static func validateTransfer(from: Account, to: Account, sentCents: Int, receivedCents: Int, allowArchived: Bool = false) throws {
+        guard from.id != to.id else { throw LedgerError.sameAccount }
+        if !allowArchived, from.isArchived || to.isArchived { throw LedgerError.archivedAccount }
+        guard (1...Money.maxCents).contains(sentCents), (1...Money.maxCents).contains(receivedCents) else { throw LedgerError.invalidAmount }
+        if from.currencyCode == to.currencyCode, sentCents != receivedCents { throw LedgerError.transferAmountMismatch }
+    }
+
     @discardableResult
     static func createTransfer(from: Account, to: Account, sentCents: Int, receivedCents: Int, date: Date,
                                title: String = "", notes: String = "", in context: ModelContext) throws -> TransactionRecord {
-        guard from.id != to.id else { throw LedgerError.sameAccount }
-        guard !from.isArchived, !to.isArchived else { throw LedgerError.archivedAccount }
-        guard (1...Money.maxCents).contains(sentCents), (1...Money.maxCents).contains(receivedCents) else { throw LedgerError.invalidAmount }
-        if from.currencyCode == to.currencyCode, sentCents != receivedCents { throw LedgerError.transferAmountMismatch }
+        try validateTransfer(from: from, to: to, sentCents: sentCents, receivedCents: receivedCents)
         let tx = TransactionRecord(amountCents: sentCents, kind: .transfer, category: "", date: date, title: title,
                                    notes: notes, accountID: from.id)
         tx.toAccountID = to.id
@@ -171,7 +175,7 @@ enum Ledger {
     /// Moves money between available cash and a goal. Never touches transactions.
     @discardableResult
     static func moveMoney(goal: SavingsGoal, cents: Int, withdraw: Bool, date: Date, note: String,
-                          entries: [GoalEntry], affectsCash: Bool = true,
+                          entries: [GoalEntry], affectsCash: Bool = true, accountID: UUID? = nil,
                           in context: ModelContext) throws -> GoalEntry {
         guard cents > 0, cents <= Money.maxCents else { throw LedgerError.invalidAmount }
         if withdraw, cents > FinanceEngine.balance(of: goal.id, entries: entries) {
@@ -179,6 +183,7 @@ enum Ledger {
         }
         let e = GoalEntry(goalID: goal.id, amountCents: withdraw ? -cents : cents, date: date,
                           note: note, affectsCash: affectsCash)
+        e.accountID = accountID
         context.insert(e)
         try context.save()
         return e

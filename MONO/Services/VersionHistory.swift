@@ -11,6 +11,14 @@ struct Release: Identifiable, Equatable {
 
 enum VersionHistory {
     static let releases: [Release] = [
+        Release(version: "1.5", date: "29 Oct 2026", title: "Accounts and currencies",
+                notes: ["Accounts: cash, bank accounts and e-wallets, each with its own currency and starting balance. Your existing money moved into a “Main account” with nothing lost.",
+                        "Transfers between accounts. They are never counted as income or spending, and a cross-currency transfer records the exact amount sent and received.",
+                        "Multiple currencies with a reporting currency. Conversion uses only rates you enter; money without a rate is flagged and left out of totals, never guessed.",
+                        "Merchant and tags on transactions, filtering by account and tag, and search across merchant, tags and account names.",
+                        "A warning when a new transaction looks like a duplicate of one you already have.",
+                        "A validated safety copy of your data is written before accounts are first set up.",
+                        "Backup format 2 stores accounts, transfers and exchange rates; older backups still restore."]),
         Release(version: "1.4", date: "29 Oct 2026", title: "Your theme",
                 notes: ["Theme editor in Settings: change the primary, secondary, background, surface, accent and text colours, with a live preview across the whole app.",
                         "Three curated palettes: Sage & Cream, Warm Minimal and Midnight Elegance, each with a light and a dark version.",

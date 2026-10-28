@@ -5,6 +5,8 @@ struct BudgetView: View {
     @Environment(\.modelContext) private var context
     @Environment(ErrorCenter.self) private var errors
     @Query private var txs: [TransactionRecord]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
     @Query private var monthBudgets: [MonthBudget]
     @Query private var limits: [BudgetLimit]
     @Query(sort: \PlannedExpense.dueDate) private var planned: [PlannedExpense]
@@ -16,9 +18,11 @@ struct BudgetView: View {
     @State private var plannedSheet: PlannedTarget?
 
     private var current: MonthKey { MonthKey(.now) }
+    /// Spending in the reporting currency (foreign-currency records converted with your rates, transfers excluded).
+    private var reported: [TransactionRecord] { Books(accounts: accounts, rates: rates, transactions: txs, entries: []).reported }
     private var explicitTotal: Int? { monthBudgets.first { $0.monthKey == month.string }?.totalCents }
     private var summary: BudgetSummary {
-        FinanceEngine.budgetSummary(month: month, totalLimit: explicitTotal, limits: limits, transactions: txs)
+        FinanceEngine.budgetSummary(month: month, totalLimit: explicitTotal, limits: limits, transactions: reported)
     }
     private var previousHasBudget: Bool {
         let p = month.adding(-1).string
@@ -195,7 +199,7 @@ struct BudgetView: View {
         let prev = prevMonth.string
         let prevTotal = monthBudgets.first(where: { $0.monthKey == prev })?.totalCents
         let plan = carryOver
-            ? FinanceEngine.rollover(from: prevMonth, totalLimit: prevTotal, limits: limits, transactions: txs)
+            ? FinanceEngine.rollover(from: prevMonth, totalLimit: prevTotal, limits: limits, transactions: reported)
             : FinanceEngine.BudgetRollover(totalCents: prevTotal,
                                            limits: limits.filter { $0.monthKey == prev }.map { ($0.category, $0.limitCents) })
         if let t = plan.totalCents, explicitTotal == nil { context.insert(MonthBudget(monthKey: month.string, totalCents: t)) }

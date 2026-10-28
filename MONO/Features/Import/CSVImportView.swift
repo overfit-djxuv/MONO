@@ -8,7 +8,9 @@ struct CSVImportView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(ErrorCenter.self) private var errors
-    @Query private var existing: [TransactionRecord]
+    @Query private var allExisting: [TransactionRecord]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @State private var accountID: UUID?
     @Query(sort: \MoneyCategory.sortOrder) private var categories: [MoneyCategory]
 
     @State private var mapping: CSVImport.Mapping
@@ -19,6 +21,14 @@ struct CSVImportView: View {
     init(records: [[String]]) {
         self.records = records
         _mapping = State(initialValue: CSVImport.autoMapping(records))
+    }
+
+    private var targetAccounts: [Account] { accounts.filter { !$0.isArchived } }
+    private var account: Account? { targetAccounts.first { $0.id == accountID } ?? AccountEngine.defaultAccount(accounts) }
+    /// Duplicates are judged against the chosen account only.
+    private var existing: [TransactionRecord] {
+        let def = AccountEngine.defaultAccount(accounts)?.id
+        return allExisting.filter { ($0.accountID ?? def) == account?.id }
     }
 
     private var columnNames: [String] {
@@ -61,6 +71,13 @@ struct CSVImportView: View {
     private var form: some View {
         Form {
             Group {
+            if targetAccounts.count > 1 {
+                Section {
+                    Picker("Import into", selection: Binding(get: { account?.id }, set: { accountID = $0; recompute() })) {
+                        ForEach(targetAccounts) { Label("\($0.name) · \($0.currencyCode)", systemImage: $0.kind.symbol).tag(Optional($0.id)) }
+                    }
+                } footer: { Text("Amounts in the file are read as this account’s currency.") }
+            }
             Section {
                 Toggle("First row is a header", isOn: $mapping.hasHeader)
                 columnPicker("Date", $mapping.date)
@@ -162,7 +179,7 @@ struct CSVImportView: View {
 
     private func add() {
         do {
-            try CSVImport.apply(plan, categories: categories, in: context)
+            try CSVImport.apply(plan, categories: categories, accountID: account?.id, in: context)
             Haptics.success()
             imported = plan.rows.count
         } catch { errors.report(error, doing: "Couldn’t import") }

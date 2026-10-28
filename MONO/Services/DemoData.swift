@@ -67,6 +67,28 @@ enum DemoData {
                                         category: it.3 == .grocery ? "Groceries" : "Shopping", priority: it.4, listKind: it.3))
         }
         try? context.save()
+        if let main = (try? context.fetch(FetchDescriptor<Account>()))?.first { main.openingCents = 1_250_000; try? context.save() }
+        if CommandLine.arguments.contains("-MONOMultiAccount") { addMultiAccount(context, now: now) }
+    }
+
+    /// Two more accounts (cash, and a dollar e-wallet with an explicit rate), a same-currency transfer, a cross-currency
+    /// transfer, and a dollar expense, to exercise the multi-account screens.
+    private static func addMultiAccount(_ context: ModelContext, now: Date) {
+        _ = try? AccountMigration.run(in: context, snapshotFirst: false)
+        guard let main = (try? context.fetch(FetchDescriptor<Account>()))?.first else { return }
+        let cash = Account(name: "Cash", kind: .cash, currencyCode: "MYR", openingCents: 15_000, sortOrder: 1)
+        let wallet = Account(name: "USD wallet", kind: .ewallet, currencyCode: "USD", openingCents: 20_000, sortOrder: 2)
+        context.insert(cash); context.insert(wallet)
+        context.insert(ExchangeRate(fromCode: "USD", toCode: "MYR", rateMicros: 4_472_500))
+        _ = try? Ledger.createTransfer(from: main, to: cash, sentCents: 30_000, receivedCents: 30_000, date: now.addingTimeInterval(-86_400 * 2),
+                                       title: "ATM withdrawal", in: context)
+        _ = try? Ledger.createTransfer(from: main, to: wallet, sentCents: 44_725, receivedCents: 10_000, date: now.addingTimeInterval(-86_400),
+                                       title: "Top up", in: context)
+        context.insert(TransactionRecord(amountCents: 1_250, kind: .expense, category: "Food", date: now.addingTimeInterval(-3_600),
+                                         title: "Flat white", accountID: wallet.id, merchant: "Blue Bottle", tags: "coffee,travel"))
+        context.insert(TransactionRecord(amountCents: 850, kind: .expense, category: "Food", date: now.addingTimeInterval(-7_200),
+                                         title: "Nasi lemak", accountID: cash.id, merchant: "Warung Ali", tags: "breakfast"))
+        try? context.save()
     }
 }
 #endif

@@ -149,8 +149,11 @@ struct MoveMoneySheet: View {
     @Environment(ErrorCenter.self) private var errors
     @Query private var entries: [GoalEntry]
     @Query private var txs: [TransactionRecord]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
     @AppStorage("openingBalanceCents") private var opening = 0
 
+    @State private var accountID: UUID?
     @State private var text = ""
     @State private var date = Date.now
     @State private var note = ""
@@ -158,7 +161,12 @@ struct MoveMoneySheet: View {
 
     private var cents: Int? { Money.parse(text).flatMap { $0 > 0 ? $0 : nil } }
     private var balance: Int { FinanceEngine.balance(of: goal.id, entries: entries) }
-    private var cash: Int { FinanceEngine.availableCash(opening: opening, transactions: txs, entries: entries) }
+    private var books: Books { Books(accounts: accounts, rates: rates, transactions: txs, entries: entries, legacyOpening: opening) }
+    /// Goals are in the reporting currency, so only accounts in that currency can fund them.
+    private var fundingAccounts: [Account] { books.active.filter { $0.currencyCode == Money.reporting.code } }
+    private var account: Account? { fundingAccounts.first { $0.id == accountID } ?? fundingAccounts.first }
+    /// The balance of the chosen account (or the overall figure if accounts haven't been set up).
+    private var cash: Int { account.map { books.balance(of: $0) } ?? books.overview.total }
     private var tooMuch: Bool { withdraw && (cents ?? 0) > balance }
     private var cashAfter: Int? {
         guard let c = cents, !fromExisting else { return nil }
@@ -171,6 +179,11 @@ struct MoveMoneySheet: View {
                 Group {
                 Section {
                     HStack { Text("Amount"); AmountField(text: $text).accessibilityIdentifier("moveAmount") }
+                    if fundingAccounts.count > 1 {
+                        Picker(withdraw ? "Return to" : "From", selection: Binding(get: { account?.id }, set: { accountID = $0 })) {
+                            ForEach(fundingAccounts) { Label($0.name, systemImage: $0.kind.symbol).tag(Optional($0.id)) }
+                        }
+                    }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     TextField("Note (optional)", text: $note)
                     if !withdraw {
@@ -186,7 +199,7 @@ struct MoveMoneySheet: View {
                 }
                 if tooMuch { Section { Callout(text: "That’s more than the goal currently holds (\(Money.format(balance))).", tone: .danger) }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if let after = cashAfter, after < 0, !withdraw {
-                    Section { Callout(text: "This takes your available cash to \(Money.format(after)). Check your opening balance in Settings if that looks wrong.", tone: .warning) }
+                    Section { Callout(text: "This takes your available cash to \(Money.format(after)). Check your account balances in Settings ▸ Accounts if that looks wrong.", tone: .warning) }
                         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 }
                 }.listRowBackground(GlassRowBackground())
@@ -208,7 +221,7 @@ struct MoveMoneySheet: View {
         guard let cents else { return }
         do {
             try Ledger.moveMoney(goal: goal, cents: cents, withdraw: withdraw, date: date, note: note,
-                                 entries: entries, affectsCash: !fromExisting, in: context)
+                                 entries: entries, affectsCash: !fromExisting, accountID: account?.id, in: context)
             Haptics.success(); dismiss()
         } catch { errors.report(error, doing: "Couldn’t save") }
     }
