@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 struct BackupFile: Codable, Equatable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     var app = "MONO"
     var version = BackupFile.currentVersion
@@ -24,6 +24,10 @@ struct BackupFile: Codable, Equatable {
     var accounts: [AccountDTO]? = nil
     var exchangeRates: [RateDTO]? = nil
     var reportingCurrency: String? = nil
+    /// Added in format 3.
+    var reservedFunds: [ReservedDTO]? = nil
+
+    struct ReservedDTO: Codable, Equatable { var id: UUID; var name: String; var amountCents: Int; var isActive: Bool; var createdAt: Date }
 
     struct AccountDTO: Codable, Equatable {
         var id: UUID; var name: String; var kind: String; var currencyCode: String
@@ -35,7 +39,7 @@ struct BackupFile: Codable, Equatable {
         var id: UUID; var title: String; var amountCents: Int; var kind: String; var category: String
         var dayOfMonth: Int; var nextMonthKey: String; var isActive: Bool
     }
-    struct CategoryDTO: Codable, Equatable { var name, symbol, kind: String; var isDefault: Bool; var sortOrder: Int }
+    struct CategoryDTO: Codable, Equatable { var name, symbol, kind: String; var isDefault: Bool; var sortOrder: Int; var isEssential: Bool? = nil }
     struct TransactionDTO: Codable, Equatable {
         var id: UUID; var amountCents: Int; var kind: String; var category: String
         var date: Date; var title: String; var notes: String; var sourceID: UUID?
@@ -57,10 +61,12 @@ struct BackupFile: Codable, Equatable {
         var id: UUID; var name: String; var kind: String; var symbol: String; var targetCents: Int
         var deadline: Date?; var destination: String; var bufferCents: Int
         var plannedMonthlyCents: Int; var contributionDay: Int; var createdAt: Date
+        var details: String? = nil; var priority: Int? = nil; var currencyCode: String? = nil
+        var frequency: String? = nil; var startDate: Date? = nil
     }
     struct GoalEntryDTO: Codable, Equatable {
         var id: UUID; var goalID: UUID; var amountCents: Int; var date: Date; var note: String; var affectsCash: Bool
-        var accountID: UUID? = nil
+        var accountID: UUID? = nil; var accountAmountCents: Int? = nil
     }
     struct TripCostDTO: Codable, Equatable {
         var id: UUID; var goalID: UUID; var category: String; var label: String; var amountCents: Int
@@ -68,7 +74,7 @@ struct BackupFile: Codable, Equatable {
 
     var recordCount: Int {
         transactions.count + monthBudgets.count + budgetLimits.count + plannedExpenses.count
-            + shoppingItems.count + goals.count + goalEntries.count + tripCosts.count + (recurringRules?.count ?? 0) + (accounts?.count ?? 0)
+            + shoppingItems.count + goals.count + goalEntries.count + tripCosts.count + (recurringRules?.count ?? 0) + (accounts?.count ?? 0) + (reservedFunds?.count ?? 0)
     }
 }
 
@@ -96,7 +102,7 @@ enum BackupService {
         f.openingBalanceCents = openingBalanceCents
         f.currencySymbol = currencySymbol
         f.categories = try context.fetch(FetchDescriptor<MoneyCategory>(sortBy: [SortDescriptor(\.sortOrder)]))
-            .map { .init(name: $0.name, symbol: $0.symbol, kind: $0.kindRaw, isDefault: $0.isDefault, sortOrder: $0.sortOrder) }
+            .map { .init(name: $0.name, symbol: $0.symbol, kind: $0.kindRaw, isDefault: $0.isDefault, sortOrder: $0.sortOrder, isEssential: $0.isEssential) }
         f.transactions = try context.fetch(FetchDescriptor<TransactionRecord>(sortBy: [SortDescriptor(\.date)]))
             .map { .init(id: $0.id, amountCents: $0.amountCents, kind: $0.kindRaw, category: $0.category,
                          date: $0.date, title: $0.title, notes: $0.notes, sourceID: $0.sourceID,
@@ -117,10 +123,12 @@ enum BackupService {
             .map { .init(id: $0.id, name: $0.name, kind: $0.kindRaw, symbol: $0.symbol, targetCents: $0.targetCents,
                          deadline: $0.deadline, destination: $0.destination, bufferCents: $0.bufferCents,
                          plannedMonthlyCents: $0.plannedMonthlyCents, contributionDay: $0.contributionDay,
-                         createdAt: $0.createdAt) }
+                         createdAt: $0.createdAt, details: $0.details, priority: $0.priorityRaw, currencyCode: $0.currencyCode,
+                         frequency: $0.frequencyRaw, startDate: $0.startDate) }
         f.goalEntries = try context.fetch(FetchDescriptor<GoalEntry>(sortBy: [SortDescriptor(\.date)]))
             .map { .init(id: $0.id, goalID: $0.goalID, amountCents: $0.amountCents, date: $0.date,
-                         note: $0.note, affectsCash: $0.affectsCash, accountID: $0.accountID) }
+                         note: $0.note, affectsCash: $0.affectsCash, accountID: $0.accountID,
+                         accountAmountCents: $0.accountAmountCents) }
         f.tripCosts = try context.fetch(FetchDescriptor<TripCost>())
             .map { .init(id: $0.id, goalID: $0.goalID, category: $0.categoryRaw, label: $0.label, amountCents: $0.amountCents) }
         f.recurringRules = try context.fetch(FetchDescriptor<RecurringRule>())
@@ -132,6 +140,8 @@ enum BackupService {
         f.exchangeRates = try context.fetch(FetchDescriptor<ExchangeRate>())
             .map { .init(fromCode: $0.fromCode, toCode: $0.toCode, rateMicros: $0.rateMicros, updatedAt: $0.updatedAt) }
         f.reportingCurrency = Money.reporting.code
+        f.reservedFunds = try context.fetch(FetchDescriptor<ReservedFund>())
+            .map { .init(id: $0.id, name: $0.name, amountCents: $0.amountCents, isActive: $0.isActive, createdAt: $0.createdAt) }
         return f
     }
 
@@ -230,6 +240,13 @@ enum BackupService {
         for r in f.exchangeRates ?? [] {
             guard r.fromCode.count == 3, r.toCode.count == 3, r.fromCode != r.toCode, r.rateMicros > 0 else { throw fail("invalid exchange rate") }
         }
+        for g in f.goals {
+            if let c = g.currencyCode, !c.isEmpty, c.count != 3 { throw fail("goal “\(g.name)” has an invalid currency") }
+            if let p = g.priority, Priority(rawValue: p) == nil { throw fail("goal “\(g.name)” has an invalid priority") }
+            if let q = g.frequency, ContributionFrequency(rawValue: q) == nil { throw fail("goal “\(g.name)” has an invalid schedule") }
+        }
+        for e in f.goalEntries { if let a = e.accountAmountCents, abs(a) > cap { throw fail("contribution out of range") } }
+        for r in f.reservedFunds ?? [] { guard (0...cap).contains(r.amountCents), !r.name.isEmpty else { throw fail("invalid reserved fund") } }
         let ruleIDs = (f.recurringRules ?? []).map(\.id)
         guard Set(ruleIDs).count == ruleIDs.count else { throw fail("duplicate recurring ids") }
         for r in f.recurringRules ?? [] {
@@ -256,6 +273,7 @@ enum BackupService {
             try context.delete(model: RecurringRule.self)
             try context.delete(model: Account.self)
             try context.delete(model: ExchangeRate.self)
+            try context.delete(model: ReservedFund.self)
             try context.delete(model: MoneyCategory.self)
 
             for a in f.accounts ?? [] {
@@ -265,9 +283,15 @@ enum BackupService {
                 context.insert(m)
             }
             for r in f.exchangeRates ?? [] { context.insert(ExchangeRate(fromCode: r.fromCode, toCode: r.toCode, rateMicros: r.rateMicros, updatedAt: r.updatedAt)) }
+            for r in f.reservedFunds ?? [] {
+                let m = ReservedFund(name: r.name, amountCents: r.amountCents, isActive: r.isActive, id: r.id)
+                m.createdAt = r.createdAt; context.insert(m)
+            }
             for c in f.categories {
-                context.insert(MoneyCategory(name: c.name, symbol: c.symbol, kind: TxKind(rawValue: c.kind) ?? .expense,
-                                             isDefault: c.isDefault, sortOrder: c.sortOrder))
+                let m = MoneyCategory(name: c.name, symbol: c.symbol, kind: TxKind(rawValue: c.kind) ?? .expense,
+                                      isDefault: c.isDefault, sortOrder: c.sortOrder)
+                m.isEssential = c.isEssential ?? false
+                context.insert(m)
             }
             for t in f.transactions {
                 let m = TransactionRecord(amountCents: t.amountCents, kind: TxKind(rawValue: t.kind) ?? .expense,
@@ -297,12 +321,15 @@ enum BackupService {
                 m.targetCents = g.targetCents; m.deadline = g.deadline; m.destination = g.destination
                 m.bufferCents = g.bufferCents; m.plannedMonthlyCents = g.plannedMonthlyCents
                 m.contributionDay = g.contributionDay; m.createdAt = g.createdAt
+                m.details = g.details ?? ""; m.priorityRaw = g.priority ?? Priority.medium.rawValue
+                m.currencyCode = g.currencyCode ?? ""; m.frequencyRaw = g.frequency ?? ContributionFrequency.monthly.rawValue
+                m.startDate = g.startDate
                 context.insert(m)
             }
             for e in f.goalEntries {
                 let m = GoalEntry(goalID: e.goalID, amountCents: e.amountCents, date: e.date, note: e.note,
                                   affectsCash: e.affectsCash, id: e.id)
-                m.accountID = e.accountID
+                m.accountID = e.accountID; m.accountAmountCents = e.accountAmountCents ?? 0
                 context.insert(m)
             }
             for c in f.tripCosts {

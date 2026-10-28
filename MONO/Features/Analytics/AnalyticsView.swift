@@ -136,7 +136,7 @@ struct AnalyticsView: View {
     // MARK: Savings growth
 
     @ViewBuilder private var growth: some View {
-        let pts = FinanceEngine.savingsGrowth(entries: entries, through: now)
+        let pts = FinanceEngine.savingsGrowth(entries: Books(accounts: accounts, rates: rates, transactions: [], entries: []).reportableEntries(goals: goals, entries: entries), through: now)
         if pts.isEmpty {
             Text("Add money to a goal to start tracking savings growth.").font(.subheadline).foregroundStyle(Theme.inkSecondary)
         } else if pts.count == 1 {
@@ -291,7 +291,7 @@ struct TripFundingChart: View {
         }
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("\(Money.format(plan.saved)) of \(Money.format(plan.target))").font(.figure(15)).foregroundStyle(Theme.ink)
+                Text("\(goal.money(plan.saved)) of \(goal.money(plan.target))").font(.figure(15)).foregroundStyle(Theme.ink)
                 Spacer()
                 StatusChip(text: plan.statusText, tint: plan.statusTint)
             }
@@ -306,7 +306,7 @@ struct TripFundingChart: View {
                     RuleMark(y: .value("Target", plan.target.rm)).foregroundStyle(Theme.warning)
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
                         .annotation(position: .top, alignment: .leading) {
-                            Text("Target \(Money.formatWhole(plan.target))").font(.caption2).foregroundStyle(Theme.warning)
+                            Text("Target \(goal.money(plan.target))").font(.caption2).foregroundStyle(Theme.warning)
                         }
                 }
                 .chartForegroundStyleScale(["Saved": Theme.accent, "Planned": Theme.inkSecondary])

@@ -38,6 +38,20 @@ enum ListKind: String, Codable, CaseIterable, Identifiable {
     var label: String { self == .grocery ? "Groceries" : "Wishlist" }
 }
 
+/// How often a goal's planned contribution is made.
+enum ContributionFrequency: String, Codable, CaseIterable, Identifiable {
+    case weekly, biweekly, monthly
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .weekly: "Every week"; case .biweekly: "Every 2 weeks"; case .monthly: "Every month" }
+    }
+    var noun: String {
+        switch self { case .weekly: "week"; case .biweekly: "fortnight"; case .monthly: "month" }
+    }
+    /// Days between contributions for the day-based frequencies.
+    var stepDays: Int? { switch self { case .weekly: 7; case .biweekly: 14; case .monthly: nil } }
+}
+
 enum GoalKind: String, Codable, CaseIterable, Identifiable {
     case trip, general
     var id: String { rawValue }
@@ -69,6 +83,8 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var kindRaw: String = TxKind.expense.rawValue
     var isDefault: Bool = false
     var sortOrder: Int = 0
+    /// Essential spending (rent, groceries, transport…): its remaining budget is held back by Safe to spend.
+    var isEssential: Bool = false
 
     init(name: String, symbol: String, kind: TxKind, isDefault: Bool = false, sortOrder: Int = 0) {
         self.name = name
@@ -210,6 +226,14 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     /// Day of month on which planned contributions are made (1–28).
     var contributionDay: Int = 1
     var createdAt: Date = Date()
+    /// Optional description, e.g. why this goal matters.
+    var details: String = ""
+    var priorityRaw: Int = Priority.medium.rawValue
+    /// Empty means "the reporting currency", so goals made before currencies existed keep following it.
+    var currencyCode: String = ""
+    var frequencyRaw: String = ContributionFrequency.monthly.rawValue
+    /// Where the contribution schedule starts counting from (weekly and fortnightly schedules align to it). nil = created date.
+    var startDate: Date? = nil
 
     init(name: String, kind: GoalKind, symbol: String, id: UUID = UUID()) {
         self.id = id
@@ -219,6 +243,19 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     }
 
     var kind: GoalKind { GoalKind(rawValue: kindRaw) ?? .general }
+    var priority: Priority {
+        get { Priority(rawValue: priorityRaw) ?? .medium }
+        set { priorityRaw = newValue.rawValue }
+    }
+    var frequency: ContributionFrequency {
+        get { ContributionFrequency(rawValue: frequencyRaw) ?? .monthly }
+        set { frequencyRaw = newValue.rawValue }
+    }
+    var currency: Currency { currencyCode.isEmpty ? Money.reporting : Currency.find(currencyCode) }
+    var scheduleStart: Date { startDate ?? createdAt }
+
+    /// An amount in this goal's own currency, e.g. "¥ 120,000".
+    func money(_ cents: Int, signed: Bool = false) -> String { Money.format(cents, signed: signed, currency: currencyCode.isEmpty ? nil : currency) }
 }
 
 /// A signed movement into (+) or out of (−) a goal.
@@ -232,6 +269,11 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var affectsCash: Bool = true
     /// The account the money came from (or returned to). nil means the default account.
     var accountID: UUID? = nil
+    /// When the account's currency differs from the goal's, how much the account paid, in the account's own currency.
+    /// 0 means the account amount equals `amountCents`.
+    var accountAmountCents: Int = 0
+    /// What leaves (or returns to) the account.
+    var accountDelta: Int { accountAmountCents != 0 ? (amountCents < 0 ? -abs(accountAmountCents) : abs(accountAmountCents)) : amountCents }
 
     init(goalID: UUID, amountCents: Int, date: Date, note: String = "",
          affectsCash: Bool = true, id: UUID = UUID()) {
@@ -334,11 +376,28 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Money you want kept out of Safe to spend even though it sits in an account (an emergency buffer, rent for next month…).
+/// Amounts are in the reporting currency.
+@Model final class ReservedFund {
+    var id: UUID = UUID()
+    var name: String = ""
+    var amountCents: Int = 0
+    var isActive: Bool = true
+    var createdAt: Date = Date()
+
+    init(name: String, amountCents: Int, isActive: Bool = true, id: UUID = UUID()) {
+        self.id = id
+        self.name = name
+        self.amountCents = amountCents
+        self.isActive = isActive
+    }
+}
+
 enum AppSchema {
     static let models: [any PersistentModel.Type] = [
         MoneyCategory.self, TransactionRecord.self, MonthBudget.self, BudgetLimit.self,
         PlannedExpense.self, ShoppingItem.self, SavingsGoal.self, GoalEntry.self, TripCost.self, RecurringRule.self,
-        Account.self, ExchangeRate.self,
+        Account.self, ExchangeRate.self, ReservedFund.self,
     ]
 }
 

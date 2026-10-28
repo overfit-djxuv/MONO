@@ -23,7 +23,7 @@ enum AccountEngine {
                 if t.toAccountID == account.id { b += t.toAmountCents }
             }
         }
-        for e in entries where e.affectsCash && (e.accountID ?? defaultID) == account.id { b -= e.amountCents }
+        for e in entries where e.affectsCash && (e.accountID ?? defaultID) == account.id { b -= e.accountDelta }
         return b
     }
 

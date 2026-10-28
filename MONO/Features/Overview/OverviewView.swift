@@ -36,7 +36,7 @@ struct OverviewView: View {
     var body: some View {
         let books = self.books
         let cash = books.overview.total
-        let saved = FinanceEngine.savedTotal(entries: entries)
+        let saved = books.savedTotal(goals: goals, entries: entries).total
         let t = FinanceEngine.totals(books.reported, in: month)
         let budget = FinanceEngine.budgetSummary(month: month, totalLimit: monthBudgets.first { $0.monthKey == month.string }?.totalCents,
                                                  limits: limits, transactions: books.reported)
@@ -245,7 +245,7 @@ struct OverviewView: View {
         let trips = goals.filter { $0.kind == .trip }
         let trip = trips.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
             .min { ($0.deadline ?? .distantFuture) < ($1.deadline ?? .distantFuture) } ?? trips.first
-        let growth = FinanceEngine.savingsGrowth(entries: entries, through: month)
+        let growth = FinanceEngine.savingsGrowth(entries: books.reportableEntries(goals: goals, entries: entries), through: month)
         return VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Savings", trailing: "Goals") { tab = .goals }
             if let trip {
@@ -259,10 +259,10 @@ struct OverviewView: View {
                         }
                         ProgressLine(value: plan.percentFunded, tint: plan.status == .overdue ? Theme.danger : Theme.accent)
                         HStack {
-                            Text("\(Money.format(plan.saved)) of \(Money.format(plan.target))").font(.figure(14)).foregroundStyle(Theme.ink)
+                            Text("\(trip.money(plan.saved)) of \(trip.money(plan.target))").font(.figure(14)).foregroundStyle(Theme.ink)
                             Spacer()
                             if let r = plan.requiredMonthly, plan.status != .funded {
-                                Text("\(Money.format(r))/mo needed").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                                Text("\(trip.money(r))/\(trip.frequency == .monthly ? "mo" : trip.frequency == .weekly ? "wk" : "2wk") needed").font(.footnote).foregroundStyle(Theme.inkSecondary)
                             }
                         }
                     }

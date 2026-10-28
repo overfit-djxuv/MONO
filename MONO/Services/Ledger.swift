@@ -175,7 +175,7 @@ enum Ledger {
     /// Moves money between available cash and a goal. Never touches transactions.
     @discardableResult
     static func moveMoney(goal: SavingsGoal, cents: Int, withdraw: Bool, date: Date, note: String,
-                          entries: [GoalEntry], affectsCash: Bool = true, accountID: UUID? = nil,
+                          entries: [GoalEntry], affectsCash: Bool = true, accountID: UUID? = nil, accountAmountCents: Int = 0,
                           in context: ModelContext) throws -> GoalEntry {
         guard cents > 0, cents <= Money.maxCents else { throw LedgerError.invalidAmount }
         if withdraw, cents > FinanceEngine.balance(of: goal.id, entries: entries) {
@@ -184,6 +184,7 @@ enum Ledger {
         let e = GoalEntry(goalID: goal.id, amountCents: withdraw ? -cents : cents, date: date,
                           note: note, affectsCash: affectsCash)
         e.accountID = accountID
+        e.accountAmountCents = accountAmountCents
         context.insert(e)
         try context.save()
         return e
@@ -208,6 +209,7 @@ enum Ledger {
         try context.delete(model: RecurringRule.self)
         try context.delete(model: Account.self)
         try context.delete(model: ExchangeRate.self)
+        try context.delete(model: ReservedFund.self)
         try context.delete(model: MoneyCategory.self)
         try context.save()
         UserDefaults.standard.removeObject(forKey: "openingBalanceCents")

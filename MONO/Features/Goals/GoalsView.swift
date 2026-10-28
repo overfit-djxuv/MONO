@@ -25,14 +25,18 @@ struct GoalsView: View {
     @Query(sort: \SavingsGoal.createdAt) private var goals: [SavingsGoal]
     @Query private var entries: [GoalEntry]
     @Query private var costs: [TripCost]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query private var rates: [ExchangeRate]
 
     @State private var newKind: GoalKind?
     @State private var path: [SavingsGoal] = []
 
-    private var trips: [SavingsGoal] {
-        goals.filter { $0.kind == .trip }.sorted { ($0.deadline ?? .distantFuture) < ($1.deadline ?? .distantFuture) }
+    /// Most important first, then soonest deadline.
+    private func ordered(_ list: [SavingsGoal]) -> [SavingsGoal] {
+        list.sorted { ($0.priorityRaw, $1.deadline ?? .distantFuture) > ($1.priorityRaw, $0.deadline ?? .distantFuture) }
     }
-    private var others: [SavingsGoal] { goals.filter { $0.kind == .general } }
+    private var trips: [SavingsGoal] { ordered(goals.filter { $0.kind == .trip }) }
+    private var others: [SavingsGoal] { ordered(goals.filter { $0.kind == .general }) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -69,11 +73,14 @@ struct GoalsView: View {
     }
 
     private var header: some View {
-        let total = FinanceEngine.savedTotal(entries: entries)
+        let saved = Books(accounts: accounts, rates: rates, transactions: [], entries: []).savedTotal(goals: goals, entries: entries)
         return VStack(alignment: .leading, spacing: 4) {
             Text("Saved across goals").font(.footnote).foregroundStyle(Theme.inkSecondary)
-            Text(Money.format(total)).font(.figure(34, weight: .light)).foregroundStyle(Theme.ink)
+            Text(Money.format(saved.total)).font(.figure(34, weight: .light)).foregroundStyle(Theme.ink)
                 .contentTransition(.numericText())
+            if !saved.unconverted.isEmpty {
+                Text("\(saved.unconverted.joined(separator: ", ")) isn’t included: no exchange rate yet.").font(.caption).foregroundStyle(Theme.warning)
+            }
         }
     }
 
@@ -101,20 +108,26 @@ struct GoalRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(goal.name).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
                     Text(subtitle(plan)).font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
+                    if !goal.details.isEmpty { Text(goal.details).font(.caption).foregroundStyle(Theme.inkTertiary).lineLimit(1) }
                 }
                 Spacer(minLength: 6)
+                if goal.priority == .high { Image(systemName: "exclamationmark.circle.fill").font(.footnote).foregroundStyle(Theme.warning).accessibilityLabel("High priority") }
                 StatusChip(text: plan.statusText, tint: plan.statusTint)
             }
             ProgressLine(value: plan.percentFunded, tint: plan.status == .overdue ? Theme.danger : Theme.accent)
             HStack {
-                Text(Money.format(plan.saved)).font(.figure(15)).foregroundStyle(Theme.ink)
-                Text("of \(Money.format(plan.target))").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                Text(goal.money(plan.saved)).font(.figure(15)).foregroundStyle(Theme.ink)
+                Text("of \(goal.money(plan.target))").font(.footnote).foregroundStyle(Theme.inkSecondary)
                 Spacer()
                 Text("\(Int((plan.percentFunded * 100).rounded()))%").font(.figure(13)).foregroundStyle(Theme.inkSecondary)
             }
             if let r = plan.requiredMonthly, plan.status != .funded {
-                Text("\(Money.format(r)) a month needed · \(plan.contributionsRemaining) \(plan.contributionsRemaining == 1 ? "contribution" : "contributions") left")
+                Text("\(goal.money(r)) each \(goal.frequency.noun) needed · \(plan.contributionsRemaining) \(plan.contributionsRemaining == 1 ? "contribution" : "contributions") left")
                     .font(.footnote).foregroundStyle(Theme.inkSecondary)
+            }
+            if plan.status != .funded, let est = plan.estimatedCompletion {
+                Text("Estimated \(est.formatted(.dateTime.day().month(.abbreviated).year())) · \(plan.estimateBasis == .plan ? "at your plan" : "at your recent pace")")
+                    .font(.caption).foregroundStyle(Theme.inkSecondary)
             }
         }
         .contentShape(Rectangle())

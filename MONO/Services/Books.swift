@@ -38,6 +38,29 @@ struct Books {
     func reportingBalance(of account: Account) -> Int? { converter.convert(balance(of: account), from: account.currency) }
 
     func needsRate(_ account: Account) -> Bool { !converter.hasRate(for: account.currency) }
+
+    /// What is saved across all goals, in the reporting currency. A goal in a currency with no exchange rate is left out and named.
+    func savedTotal(goals: [SavingsGoal], entries: [GoalEntry]) -> (total: Int, unconverted: [String]) {
+        var total = 0, missing: [String] = []
+        for g in goals {
+            let balance = FinanceEngine.balance(of: g.id, entries: entries)
+            if let c = converter.convert(balance, from: g.currency) { total += c } else { missing.append(g.name) }
+        }
+        return (total, missing)
+    }
+
+    /// Goal movements expressed in the reporting currency, for charts. Movements of a goal with no exchange rate are skipped.
+    /// Detached copies, never stored.
+    func reportableEntries(goals: [SavingsGoal], entries: [GoalEntry]) -> [GoalEntry] {
+        let byID = Dictionary(uniqueKeysWithValues: goals.map { ($0.id, $0) })
+        return entries.compactMap { e in
+            guard let g = byID[e.goalID] else { return e }
+            if g.currency.code == converter.reporting.code { return e }
+            guard let cents = converter.convert(e.amountCents, from: g.currency) else { return nil }
+            let copy = GoalEntry(goalID: e.goalID, amountCents: cents, date: e.date, note: e.note, affectsCash: e.affectsCash, id: e.id)
+            return copy
+        }
+    }
 }
 
 /// Cheap lookups for drawing rows: which account a record belongs to, and whether account names are worth showing.

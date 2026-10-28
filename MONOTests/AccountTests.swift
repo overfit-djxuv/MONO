@@ -276,7 +276,7 @@ final class BackupV2Tests: XCTestCase {
 
         let data = try BackupService.encode(try BackupService.snapshot(context: src, openingBalanceCents: 0, currencySymbol: "RM"))
         let file = try BackupService.decode(data)
-        XCTAssertEqual(file.version, 2); XCTAssertEqual(file.accounts?.count, 2); XCTAssertEqual(file.exchangeRates?.count, 1)
+        XCTAssertEqual(file.version, BackupFile.currentVersion); XCTAssertEqual(file.accounts?.count, 2); XCTAssertEqual(file.exchangeRates?.count, 1)
 
         let (_, dst) = try makeContext()
         try BackupService.replaceAll(with: file, in: dst)

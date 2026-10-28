@@ -20,15 +20,22 @@ struct GoalForm: View {
     @State private var buffer = ""
     @State private var existing = ""
     @State private var costTexts: [TripCostCategory: String] = [:]
+    @State private var details = ""
+    @State private var priority: Priority = .medium
+    @State private var currencyCode = ""          // empty = the reporting currency
+    @State private var frequency: ContributionFrequency = .monthly
+    @State private var startDate = Date.now
+
+    private var cur: Currency { currencyCode.isEmpty ? Money.reporting : Currency.find(currencyCode) }
 
     private var isTrip: Bool { kind == .trip }
-    private func amount(_ s: String) -> Int? { s.isEmpty ? 0 : Money.parse(s) }
+    private func amount(_ s: String) -> Int? { s.isEmpty ? 0 : Money.parse(s, currency: cur) }
     private var valid: Bool {
         let n = isTrip ? destination : name
         guard !n.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         guard amount(monthly) != nil, amount(buffer) != nil, amount(existing) != nil else { return false }
         if isTrip { return TripCostCategory.allCases.allSatisfy { amount(costTexts[$0] ?? "") != nil } }
-        return (Money.parse(target) ?? 0) > 0
+        return (Money.parse(target, currency: cur) ?? 0) > 0
     }
     private var tripTotal: Int {
         TripCostCategory.allCases.reduce(amount(buffer) ?? 0) { $0 + (amount(costTexts[$1] ?? "") ?? 0) }
@@ -44,10 +51,25 @@ struct GoalForm: View {
                         DatePicker("Departure", selection: $deadline, in: Date.now..., displayedComponents: .date)
                     } else {
                         TextField("Goal name", text: $name).accessibilityIdentifier("goalName")
-                        HStack { Text("Target"); AmountField(text: $target) }
+                        HStack { Text("Target"); AmountField(text: $target, currency: cur) }
                         Toggle("Has a deadline", isOn: $hasDeadline)
                         if hasDeadline { DatePicker("Deadline", selection: $deadline, in: Date.now..., displayedComponents: .date) }
                     }
+                }
+                Section {
+                    TextField("Description (optional)", text: $details, axis: .vertical).lineLimit(1...3)
+                    Picker("Priority", selection: $priority) { ForEach(Priority.allCases) { Text($0.label).tag($0) } }
+                    if editing == nil {
+                        Picker("Currency", selection: $currencyCode) {
+                            Text("Reporting (\(Money.reporting.code))").tag("")
+                            ForEach(Currency.all.filter { $0.code != Money.reporting.code }) { Text("\($0.code) · \($0.name)").tag($0.code) }
+                        }
+                    } else {
+                        HStack { Text("Currency"); Spacer(); Text(cur.code).foregroundStyle(Theme.inkSecondary) }
+                    }
+                } footer: {
+                    Text(editing == nil ? "Amounts for this goal are kept in its own currency. Converting to \(Money.reporting.code) for totals uses the exchange rates you entered."
+                                        : "The currency is fixed once a goal exists, because changing it would relabel every amount.")
                 }
                 if !isTrip {
                     Section("Icon") {
@@ -67,28 +89,33 @@ struct GoalForm: View {
                         ForEach(TripCostCategory.allCases) { c in
                             HStack {
                                 Label(c.label, systemImage: c.symbol)
-                                AmountField(text: Binding(get: { costTexts[c] ?? "" }, set: { costTexts[c] = $0 }))
+                                AmountField(text: Binding(get: { costTexts[c] ?? "" }, set: { costTexts[c] = $0 }), currency: cur)
                             }
                         }
-                        HStack { Label("Emergency buffer", systemImage: "shield"); AmountField(text: $buffer) }
+                        HStack { Label("Emergency buffer", systemImage: "shield"); AmountField(text: $buffer, currency: cur) }
                     } header: { Text("Estimated costs") } footer: {
-                        Text("Trip target: \(Money.format(tripTotal)). You can refine costs any time.")
+                        Text("Trip target: \(Money.format(tripTotal, currency: cur)). You can refine costs any time.")
                     }
                 } else if isTrip {
                     Section {
-                        HStack { Label("Emergency buffer", systemImage: "shield"); AmountField(text: $buffer) }
+                        HStack { Label("Emergency buffer", systemImage: "shield"); AmountField(text: $buffer, currency: cur) }
                     } footer: { Text("Costs are edited from the trip screen.") }
                 }
                 Section {
-                    HStack { Text("Monthly contribution"); AmountField(text: $monthly) }
-                    Stepper("Contribute on day \(day)", value: $day, in: 1...28)
+                    Picker("How often", selection: $frequency) { ForEach(ContributionFrequency.allCases) { Text($0.label).tag($0) } }
+                    HStack { Text("Contribution each \(frequency.noun)"); AmountField(text: $monthly, currency: cur) }
+                    if frequency == .monthly {
+                        Stepper("Contribute on day \(day)", value: $day, in: 1...28)
+                    }
+                    DatePicker(frequency == .monthly ? "Starts" : "First contribution", selection: $startDate, displayedComponents: .date)
                     if editing == nil {
-                        HStack { Text("Already saved"); AmountField(text: $existing) }
+                        HStack { Text("Already saved"); AmountField(text: $existing, currency: cur) }
                     }
                 } header: { Text("Savings plan") } footer: {
                     Text(editing == nil
-                         ? "“Already saved” is money you set aside before using MONO. It counts toward the goal but isn’t taken out of your available cash."
-                         : "Planned contributions are counted on this day each month, after today.")
+                         ? "“Already saved” is money you set aside before using MONO. It counts toward the goal but isn’t taken out of your available cash. Nothing is scheduled before the start date."
+                         : (frequency == .monthly ? "Planned contributions are counted on this day each month, after today and never before the start date."
+                                                  : "Planned contributions repeat every \(frequency == .weekly ? "7" : "14") days from the first contribution."))
                 }
                 }.listRowBackground(GlassRowBackground())
             }
@@ -107,10 +134,13 @@ struct GoalForm: View {
     private func load() {
         guard let g = editing else { return }
         name = g.name; destination = g.destination; symbol = g.symbol
-        target = Money.editable(g.targetCents); hasDeadline = g.deadline != nil
+        hasDeadline = g.deadline != nil
         deadline = g.deadline ?? deadline
-        monthly = Money.editable(g.plannedMonthlyCents); day = g.contributionDay
-        buffer = Money.editable(g.bufferCents)
+        details = g.details; priority = g.priority; currencyCode = g.currencyCode; frequency = g.frequency
+        startDate = g.scheduleStart
+        monthly = Money.editable(g.plannedMonthlyCents, currency: g.currency); day = g.contributionDay
+        buffer = Money.editable(g.bufferCents, currency: g.currency)
+        target = Money.editable(g.targetCents, currency: g.currency)
     }
 
     private func save() {
@@ -118,12 +148,17 @@ struct GoalForm: View {
         g.name = (isTrip ? destination : name).trimmingCharacters(in: .whitespaces)
         g.symbol = isTrip ? "airplane" : symbol
         g.destination = isTrip ? g.name : ""
-        g.targetCents = isTrip ? 0 : (Money.parse(target) ?? 0)
+        g.targetCents = isTrip ? 0 : (Money.parse(target, currency: cur) ?? 0)
         g.deadline = isTrip ? deadline : (hasDeadline ? deadline : nil)
         g.bufferCents = amount(buffer) ?? 0
         g.plannedMonthlyCents = amount(monthly) ?? 0
         g.contributionDay = day
+        g.details = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        g.priority = priority
+        g.frequency = frequency
+        g.startDate = Calendar.current.startOfDay(for: startDate)
         if editing == nil {
+            g.currencyCode = currencyCode
             context.insert(g)
             if isTrip {
                 for c in TripCostCategory.allCases {
@@ -140,7 +175,8 @@ struct GoalForm: View {
     }
 }
 
-/// Add money to, or withdraw money from, a goal.
+/// Add money to, or withdraw money from, a goal. If the account is in a different currency from the goal, you enter both amounts,
+/// which fixes the rate for this movement. Either way it is a transfer to or from savings, never income or an expense.
 struct MoveMoneySheet: View {
     let goal: SavingsGoal
     let withdraw: Bool
@@ -155,34 +191,53 @@ struct MoveMoneySheet: View {
 
     @State private var accountID: UUID?
     @State private var text = ""
+    @State private var accountText = ""
     @State private var date = Date.now
     @State private var note = ""
     @State private var fromExisting = false
 
-    private var cents: Int? { Money.parse(text).flatMap { $0 > 0 ? $0 : nil } }
-    private var balance: Int { FinanceEngine.balance(of: goal.id, entries: entries) }
+    private var gc: Currency { goal.currency }
     private var books: Books { Books(accounts: accounts, rates: rates, transactions: txs, entries: entries, legacyOpening: opening) }
-    /// Goals are in the reporting currency, so only accounts in that currency can fund them.
-    private var fundingAccounts: [Account] { books.active.filter { $0.currencyCode == Money.reporting.code } }
+    private var fundingAccounts: [Account] { books.active }
     private var account: Account? { fundingAccounts.first { $0.id == accountID } ?? fundingAccounts.first }
-    /// The balance of the chosen account (or the overall figure if accounts haven't been set up).
+    private var crossCurrency: Bool { account.map { $0.currencyCode != gc.code } ?? false }
+
+    private var cents: Int? { Money.parse(text, currency: gc).flatMap { $0 > 0 ? $0 : nil } }
+    /// What the account pays or receives, in its own currency.
+    private var accountCents: Int? {
+        guard let a = account else { return cents }
+        if !crossCurrency { return cents }
+        return Money.parse(accountText, currency: a.currency).flatMap { $0 > 0 ? $0 : nil }
+    }
+    private var impliedRate: String? {
+        guard crossCurrency, let a = account, let g = cents, let c = accountCents,
+              let m = CurrencyConverter.impliedMicros(fromMinor: g, from: gc, toMinor: c, to: a.currency) else { return nil }
+        return "1 \(gc.code) = \(CurrencyConverter.formatRate(m)) \(a.currencyCode)"
+    }
+    private var balance: Int { FinanceEngine.balance(of: goal.id, entries: entries) }
     private var cash: Int { account.map { books.balance(of: $0) } ?? books.overview.total }
     private var tooMuch: Bool { withdraw && (cents ?? 0) > balance }
     private var cashAfter: Int? {
-        guard let c = cents, !fromExisting else { return nil }
+        guard let c = accountCents, !fromExisting else { return nil }
         return withdraw ? cash + c : cash - c
     }
+    private var canSave: Bool { cents != nil && accountCents != nil && !tooMuch }
 
     var body: some View {
         NavigationStack {
             Form {
                 Group {
                 Section {
-                    HStack { Text("Amount"); AmountField(text: $text).accessibilityIdentifier("moveAmount") }
+                    HStack { Text(crossCurrency ? (withdraw ? "Goal gives up" : "Goal receives") : "Amount")
+                        AmountField(text: $text, currency: gc).accessibilityIdentifier("moveAmount") }
                     if fundingAccounts.count > 1 {
                         Picker(withdraw ? "Return to" : "From", selection: Binding(get: { account?.id }, set: { accountID = $0 })) {
-                            ForEach(fundingAccounts) { Label($0.name, systemImage: $0.kind.symbol).tag(Optional($0.id)) }
+                            ForEach(fundingAccounts) { Label("\($0.name) · \($0.currencyCode)", systemImage: $0.kind.symbol).tag(Optional($0.id)) }
                         }
+                    }
+                    if crossCurrency, let a = account, !fromExisting {
+                        HStack { Text(withdraw ? "Account receives" : "Account pays"); AmountField(text: $accountText, currency: a.currency) }
+                        if let impliedRate { Text("Rate used for this movement: \(impliedRate)").font(.footnote).foregroundStyle(Theme.inkSecondary) }
                     }
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     TextField("Note (optional)", text: $note)
@@ -191,15 +246,15 @@ struct MoveMoneySheet: View {
                     }
                 } footer: {
                     if withdraw {
-                        Text("Goal holds \(Money.format(balance)). The money returns to your available cash — it isn’t recorded as income.")
+                        Text("Goal holds \(goal.money(balance)). The money returns to \(account?.name ?? "your available cash"): it isn’t recorded as income.")
                     } else {
                         Text(fromExisting ? "Counts toward the goal without reducing available cash."
-                                          : "Moves money from available cash (\(Money.format(cash))) into this goal. It isn’t recorded as an expense.")
+                                          : "Moves money from \(account?.name ?? "your account") (\(Money.format(cash, currency: account?.currency))) into this goal. It isn’t recorded as an expense.")
                     }
                 }
-                if tooMuch { Section { Callout(text: "That’s more than the goal currently holds (\(Money.format(balance))).", tone: .danger) }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                if tooMuch { Section { Callout(text: "That’s more than the goal currently holds (\(goal.money(balance))).", tone: .danger) }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if let after = cashAfter, after < 0, !withdraw {
-                    Section { Callout(text: "This takes your available cash to \(Money.format(after)). Check your account balances in Settings ▸ Accounts if that looks wrong.", tone: .warning) }
+                    Section { Callout(text: "This takes \(account?.name ?? "your cash") to \(Money.format(after, currency: account?.currency)). Check your account balances in Settings ▸ Accounts if that looks wrong.", tone: .warning) }
                         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 }
                 }.listRowBackground(GlassRowBackground())
@@ -210,7 +265,7 @@ struct MoveMoneySheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(withdraw ? "Withdraw" : "Add", action: save).disabled(cents == nil || tooMuch).accessibilityIdentifier("saveMove")
+                    Button(withdraw ? "Withdraw" : "Add", action: save).disabled(!canSave).accessibilityIdentifier("saveMove")
                 }
             }
         }
@@ -221,7 +276,8 @@ struct MoveMoneySheet: View {
         guard let cents else { return }
         do {
             try Ledger.moveMoney(goal: goal, cents: cents, withdraw: withdraw, date: date, note: note,
-                                 entries: entries, affectsCash: !fromExisting, accountID: account?.id, in: context)
+                                 entries: entries, affectsCash: !fromExisting, accountID: account?.id,
+                                 accountAmountCents: crossCurrency && !fromExisting ? (accountCents ?? 0) : 0, in: context)
             Haptics.success(); dismiss()
         } catch { errors.report(error, doing: "Couldn’t save") }
     }
@@ -238,7 +294,7 @@ struct CostSheet: View {
     @State private var text = ""
     @State private var confirmDelete = false
 
-    private var cents: Int? { Money.parse(text).flatMap { $0 > 0 ? $0 : nil } }
+    private var cents: Int? { Money.parse(text, currency: goal.currency).flatMap { $0 > 0 ? $0 : nil } }
 
     var body: some View {
         NavigationStack {
@@ -249,7 +305,7 @@ struct CostSheet: View {
                         ForEach(TripCostCategory.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
                     }
                     TextField("Label (optional)", text: $label)
-                    HStack { Text("Estimated cost"); AmountField(text: $text) }
+                    HStack { Text("Estimated cost"); AmountField(text: $text, currency: goal.currency) }
                 }
                 if editing != nil { Section { Button("Delete cost", role: .destructive) { confirmDelete = true } } }
                 }.listRowBackground(GlassRowBackground())
@@ -262,7 +318,7 @@ struct CostSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(cents == nil) }
             }
             .onAppear {
-                if let e = editing { category = e.category; label = e.label; text = Money.editable(e.amountCents) }
+                if let e = editing { category = e.category; label = e.label; text = Money.editable(e.amountCents, currency: goal.currency) }
             }
             .confirmationDialog("Delete this cost?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
@@ -298,9 +354,9 @@ struct ScenarioSheet: View {
     private var base: PlanInput { SavingsPlanner.input(for: goal, costs: costs, entries: entries) }
     private var alt: PlanInput {
         var i = base
-        i.plannedMonthly = Money.parse(monthly) ?? (monthly.isEmpty ? 0 : base.plannedMonthly)
+        i.plannedMonthly = Money.parse(monthly, currency: goal.currency) ?? (monthly.isEmpty ? 0 : base.plannedMonthly)
         i.deadline = hasDate ? date : nil
-        if let b = Money.parse(budget), b > 0 { i.target = b }
+        if let b = Money.parse(budget, currency: goal.currency), b > 0 { i.target = b }
         return i
     }
 
@@ -311,10 +367,10 @@ struct ScenarioSheet: View {
             Form {
                 Group {
                 Section("Alternative") {
-                    HStack { Text("Monthly contribution"); AmountField(text: $monthly) }
+                    HStack { Text("Contribution each \(goal.frequency.noun)"); AmountField(text: $monthly, currency: goal.currency) }
                     Toggle(goal.kind == .trip ? "Departure date" : "Deadline", isOn: $hasDate)
                     if hasDate { DatePicker("Date", selection: $date, in: Date.now..., displayedComponents: .date) }
-                    HStack { Text(goal.kind == .trip ? "Total trip budget" : "Target"); AmountField(text: $budget, placeholder: Money.editable(base.target)) }
+                    HStack { Text(goal.kind == .trip ? "Total trip budget" : "Target"); AmountField(text: $budget, placeholder: Money.editable(base.target, currency: goal.currency), currency: goal.currency) }
                 }
                 Section("Comparison") {
                     HStack {
@@ -323,13 +379,13 @@ struct ScenarioSheet: View {
                         Text("Alternative").frame(minWidth: 84, alignment: .trailing)
                     }
                     .font(.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
-                    CompareRow(label: "Target", a: Money.format(a.target), b: Money.format(b.target))
-                    CompareRow(label: "Remaining to save", a: Money.format(a.remaining), b: Money.format(b.remaining))
+                    CompareRow(label: "Target", a: goal.money(a.target), b: goal.money(b.target))
+                    CompareRow(label: "Remaining to save", a: goal.money(a.remaining), b: goal.money(b.remaining))
                     CompareRow(label: "Contributions left", a: "\(a.contributionsRemaining)", b: "\(b.contributionsRemaining)")
-                    CompareRow(label: "Required / month", a: a.requiredMonthly.map { Money.format($0) } ?? "—", b: b.requiredMonthly.map { Money.format($0) } ?? "—")
+                    CompareRow(label: "Required / month", a: a.requiredMonthly.map { goal.money($0) } ?? "—", b: b.requiredMonthly.map { goal.money($0) } ?? "—")
                     CompareRow(label: "Expected at date", a: a.expectedAtDeadline.formatted_, b: b.expectedAtDeadline.formatted_)
                     CompareRow(label: b.shortfall > 0 || a.shortfall > 0 ? "Shortfall" : "Surplus",
-                               a: Money.format(a.shortfall > 0 ? a.shortfall : a.surplus), b: Money.format(b.shortfall > 0 ? b.shortfall : b.surplus))
+                               a: goal.money(a.shortfall > 0 ? a.shortfall : a.surplus), b: goal.money(b.shortfall > 0 ? b.shortfall : b.surplus))
                     CompareRow(label: "Status", a: a.statusText, b: b.statusText, bTint: b.statusTint)
                 }
                 Section {
@@ -345,7 +401,7 @@ struct ScenarioSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .onAppear {
-                monthly = Money.editable(goal.plannedMonthlyCents)
+                monthly = Money.editable(goal.plannedMonthlyCents, currency: goal.currency)
                 hasDate = goal.deadline != nil
                 date = goal.deadline ?? (Calendar.current.date(byAdding: .month, value: 6, to: .now) ?? .now)
             }
@@ -354,7 +410,7 @@ struct ScenarioSheet: View {
     }
 
     private func apply() {
-        goal.plannedMonthlyCents = Money.parse(monthly) ?? 0
+        goal.plannedMonthlyCents = Money.parse(monthly, currency: goal.currency) ?? 0
         if goal.kind == .trip { goal.deadline = date } else { goal.deadline = hasDate ? date : nil }
         try? context.save(); Haptics.success(); dismiss()
     }
