@@ -1,0 +1,302 @@
+import Foundation
+import SwiftData
+
+// MARK: - Enums
+
+enum TxKind: String, Codable, CaseIterable, Identifiable {
+    case income, expense
+    var id: String { rawValue }
+    var label: String { self == .income ? "Income" : "Expense" }
+}
+
+enum Priority: Int, Codable, CaseIterable, Identifiable {
+    case low = 0, medium = 1, high = 2
+    var id: Int { rawValue }
+    var label: String { ["Low", "Medium", "High"][rawValue] }
+}
+
+enum ListKind: String, Codable, CaseIterable, Identifiable {
+    case grocery, wishlist
+    var id: String { rawValue }
+    var label: String { self == .grocery ? "Groceries" : "Wishlist" }
+}
+
+enum GoalKind: String, Codable, CaseIterable, Identifiable {
+    case trip, general
+    var id: String { rawValue }
+}
+
+enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
+    case flights, accommodation, food, transportation, activities, other
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+    var symbol: String {
+        switch self {
+        case .flights: "airplane"
+        case .accommodation: "bed.double"
+        case .food: "fork.knife"
+        case .transportation: "tram"
+        case .activities: "ticket"
+        case .other: "ellipsis"
+        }
+    }
+}
+
+// MARK: - Models
+// Relationships are held by UUID rather than SwiftData relationships so that backup, restore and
+// deletion rules stay explicit and easy to test.
+
+@Model final class MoneyCategory {
+    var name: String = ""
+    var symbol: String = "tag"
+    var kindRaw: String = TxKind.expense.rawValue
+    var isDefault: Bool = false
+    var sortOrder: Int = 0
+
+    init(name: String, symbol: String, kind: TxKind, isDefault: Bool = false, sortOrder: Int = 0) {
+        self.name = name
+        self.symbol = symbol
+        self.kindRaw = kind.rawValue
+        self.isDefault = isDefault
+        self.sortOrder = sortOrder
+    }
+
+    var kind: TxKind { TxKind(rawValue: kindRaw) ?? .expense }
+}
+
+@Model final class TransactionRecord {
+    var id: UUID = UUID()
+    var amountCents: Int = 0
+    var kindRaw: String = TxKind.expense.rawValue
+    var category: String = ""
+    var date: Date = Date()
+    var title: String = ""
+    var notes: String = ""
+    /// The shopping item or planned expense this transaction was generated from (duplicate guard).
+    var sourceID: UUID? = nil
+
+    init(amountCents: Int, kind: TxKind, category: String, date: Date, title: String,
+         notes: String = "", sourceID: UUID? = nil, id: UUID = UUID()) {
+        self.id = id
+        self.amountCents = amountCents
+        self.kindRaw = kind.rawValue
+        self.category = category
+        self.date = date
+        self.title = title
+        self.notes = notes
+        self.sourceID = sourceID
+    }
+
+    var kind: TxKind {
+        get { TxKind(rawValue: kindRaw) ?? .expense }
+        set { kindRaw = newValue.rawValue }
+    }
+}
+
+@Model final class MonthBudget {
+    var monthKey: String = ""
+    var totalCents: Int = 0
+    init(monthKey: String, totalCents: Int) {
+        self.monthKey = monthKey
+        self.totalCents = totalCents
+    }
+}
+
+@Model final class BudgetLimit {
+    var monthKey: String = ""
+    var category: String = ""
+    var limitCents: Int = 0
+    init(monthKey: String, category: String, limitCents: Int) {
+        self.monthKey = monthKey
+        self.category = category
+        self.limitCents = limitCents
+    }
+}
+
+@Model final class PlannedExpense {
+    var id: UUID = UUID()
+    var title: String = ""
+    var amountCents: Int = 0
+    var dueDate: Date = Date()
+    var category: String = ""
+    var isPaid: Bool = false
+    var paidTransactionID: UUID? = nil
+
+    init(title: String, amountCents: Int, dueDate: Date, category: String, id: UUID = UUID()) {
+        self.id = id
+        self.title = title
+        self.amountCents = amountCents
+        self.dueDate = dueDate
+        self.category = category
+    }
+}
+
+@Model final class ShoppingItem {
+    var id: UUID = UUID()
+    var name: String = ""
+    var quantity: Int = 1
+    /// Prices are per unit.
+    var estimatedCents: Int = 0
+    var actualCents: Int? = nil
+    var category: String = "Groceries"
+    var priorityRaw: Int = Priority.medium.rawValue
+    var isPurchased: Bool = false
+    var listKindRaw: String = ListKind.grocery.rawValue
+    var expenseID: UUID? = nil
+    var createdAt: Date = Date()
+    var purchasedAt: Date? = nil
+
+    init(name: String, quantity: Int, estimatedCents: Int, category: String,
+         priority: Priority, listKind: ListKind, id: UUID = UUID()) {
+        self.id = id
+        self.name = name
+        self.quantity = quantity
+        self.estimatedCents = estimatedCents
+        self.category = category
+        self.priorityRaw = priority.rawValue
+        self.listKindRaw = listKind.rawValue
+    }
+
+    var priority: Priority {
+        get { Priority(rawValue: priorityRaw) ?? .medium }
+        set { priorityRaw = newValue.rawValue }
+    }
+    var listKind: ListKind { ListKind(rawValue: listKindRaw) ?? .grocery }
+    var estimatedTotal: Int { quantity * estimatedCents }
+    /// Actual price if known, otherwise the estimate.
+    var effectiveTotal: Int { quantity * (actualCents ?? estimatedCents) }
+}
+
+@Model final class SavingsGoal {
+    var id: UUID = UUID()
+    var name: String = ""
+    var kindRaw: String = GoalKind.general.rawValue
+    var symbol: String = "target"
+    /// Target for general goals. Trips derive their target from costs + buffer.
+    var targetCents: Int = 0
+    var deadline: Date? = nil
+    var destination: String = ""
+    var bufferCents: Int = 0
+    var plannedMonthlyCents: Int = 0
+    /// Day of month on which planned contributions are made (1–28).
+    var contributionDay: Int = 1
+    var createdAt: Date = Date()
+
+    init(name: String, kind: GoalKind, symbol: String, id: UUID = UUID()) {
+        self.id = id
+        self.name = name
+        self.kindRaw = kind.rawValue
+        self.symbol = symbol
+    }
+
+    var kind: GoalKind { GoalKind(rawValue: kindRaw) ?? .general }
+}
+
+/// A signed movement into (+) or out of (−) a goal.
+@Model final class GoalEntry {
+    var id: UUID = UUID()
+    var goalID: UUID = UUID()
+    var amountCents: Int = 0
+    var date: Date = Date()
+    var note: String = ""
+    /// False for money that was already saved before using MONO (does not reduce available cash).
+    var affectsCash: Bool = true
+
+    init(goalID: UUID, amountCents: Int, date: Date, note: String = "",
+         affectsCash: Bool = true, id: UUID = UUID()) {
+        self.id = id
+        self.goalID = goalID
+        self.amountCents = amountCents
+        self.date = date
+        self.note = note
+        self.affectsCash = affectsCash
+    }
+}
+
+@Model final class TripCost {
+    var id: UUID = UUID()
+    var goalID: UUID = UUID()
+    var categoryRaw: String = TripCostCategory.other.rawValue
+    var label: String = ""
+    var amountCents: Int = 0
+
+    init(goalID: UUID, category: TripCostCategory, label: String, amountCents: Int, id: UUID = UUID()) {
+        self.id = id
+        self.goalID = goalID
+        self.categoryRaw = category.rawValue
+        self.label = label
+        self.amountCents = amountCents
+    }
+
+    var category: TripCostCategory { TripCostCategory(rawValue: categoryRaw) ?? .other }
+}
+
+/// A monthly income or expense that posts itself as a normal transaction on its day.
+/// Deleting a posted transaction never re-posts it: progress is tracked by `nextMonthKey`, not by looking for records.
+@Model final class RecurringRule {
+    var id: UUID = UUID()
+    var title: String = ""
+    var amountCents: Int = 0
+    var kindRaw: String = TxKind.expense.rawValue
+    var category: String = ""
+    /// Day of month (1–28) on which the transaction posts.
+    var dayOfMonth: Int = 1
+    /// The next month (`yyyy-MM`) that has not been posted yet.
+    var nextMonthKey: String = ""
+    var isActive: Bool = true
+
+    init(title: String, amountCents: Int, kind: TxKind, category: String, dayOfMonth: Int,
+         nextMonthKey: String, isActive: Bool = true, id: UUID = UUID()) {
+        self.id = id
+        self.title = title
+        self.amountCents = amountCents
+        self.kindRaw = kind.rawValue
+        self.category = category
+        self.dayOfMonth = dayOfMonth
+        self.nextMonthKey = nextMonthKey
+        self.isActive = isActive
+    }
+
+    var kind: TxKind {
+        get { TxKind(rawValue: kindRaw) ?? .expense }
+        set { kindRaw = newValue.rawValue }
+    }
+}
+
+enum AppSchema {
+    static let models: [any PersistentModel.Type] = [
+        MoneyCategory.self, TransactionRecord.self, MonthBudget.self, BudgetLimit.self,
+        PlannedExpense.self, ShoppingItem.self, SavingsGoal.self, GoalEntry.self, TripCost.self, RecurringRule.self,
+    ]
+}
+
+// MARK: - Defaults
+
+enum DefaultCategories {
+    static let expense: [(String, String)] = [
+        ("Food", "fork.knife"), ("Groceries", "cart"), ("Transportation", "car"),
+        ("Education", "book"), ("Shopping", "bag"), ("Entertainment", "film"),
+        ("Subscriptions", "arrow.triangle.2.circlepath"), ("Travel", "airplane"),
+        ("Health", "cross.case"), ("Bills", "doc.text"), ("Other", "ellipsis"),
+    ]
+    static let income: [(String, String)] = [
+        ("Salary", "banknote"), ("Freelance", "laptopcomputer"), ("Gift", "gift"), ("Other Income", "plus.circle"),
+    ]
+
+    static let seededKey = "didSeedCategories"
+
+    static func seedIfNeeded(_ context: ModelContext) {
+        guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
+        let existing = (try? context.fetchCount(FetchDescriptor<MoneyCategory>())) ?? 0
+        if existing == 0 {
+            for (i, c) in expense.enumerated() {
+                context.insert(MoneyCategory(name: c.0, symbol: c.1, kind: .expense, isDefault: true, sortOrder: i))
+            }
+            for (i, c) in income.enumerated() {
+                context.insert(MoneyCategory(name: c.0, symbol: c.1, kind: .income, isDefault: true, sortOrder: 100 + i))
+            }
+            try? context.save()
+        }
+        UserDefaults.standard.set(true, forKey: seededKey)
+    }
+}
