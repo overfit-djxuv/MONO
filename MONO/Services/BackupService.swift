@@ -350,6 +350,7 @@ enum BackupService {
         UserDefaults.standard.set(f.currencySymbol, forKey: "currencySymbol")
         if let code = f.reportingCurrency { UserDefaults.standard.set(code, forKey: Money.reportingKey) }
         UserDefaults.standard.set(true, forKey: DefaultCategories.seededKey)
+        UserDefaults.standard.set(true, forKey: DefaultCategories.essentialSeededKey)   // a restore brings its own flags
         // A format-1 file has no accounts: give its records a Main account holding its opening balance.
         _ = try? AccountMigration.run(in: context, snapshotFirst: false)
     }

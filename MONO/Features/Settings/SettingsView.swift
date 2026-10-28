@@ -300,19 +300,25 @@ struct CategoriesView: View {
         List {
             Group {
             ForEach(TxKind.categoryKinds) { kind in
-                Section(kind == .expense ? "Expense" : "Income") {
+                Section {
                     ForEach(categories.filter { $0.kind == kind }) { c in
                         HStack(spacing: 12) {
                             CategoryGlyph(symbol: c.symbol, tint: Theme.inkSecondary)
                             Text(c.name)
                             Spacer()
-                            if c.isDefault { Text("Default").font(.caption).foregroundStyle(Theme.inkTertiary) }
+                            if c.kind == .expense {
+                                Toggle("Essential", isOn: Binding(get: { c.isEssential }, set: { c.isEssential = $0; try? context.save() }))
+                                    .labelsHidden().tint(Theme.accent)
+                                    .accessibilityLabel("\(c.name) is essential")
+                            } else if c.isDefault { Text("Default").font(.caption).foregroundStyle(Theme.inkTertiary) }
                         }
                         .swipeActions(edge: .trailing) {
                             if !c.isDefault { Button(role: .destructive) { pendingDelete = c } label: { Label("Delete", systemImage: "trash") } }
                         }
                     }
                     Button { adding = kind } label: { Label("Add category", systemImage: "plus").font(.subheadline) }
+                } header: { Text(kind == .expense ? "Expense" : "Income") } footer: {
+                    if kind == .expense { Text("Switch on Essential for spending you can’t skip. Safe to spend holds back what’s left of those budgets.") }
                 }
             }
             }.listRowBackground(GlassRowBackground())

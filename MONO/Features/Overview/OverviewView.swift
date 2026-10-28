@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-enum OverviewRoute: Hashable { case analytics, settings, appIcon, history, theme, accounts }
+enum OverviewRoute: Hashable { case analytics, settings, appIcon, history, theme, accounts, tools, safeToSpend }
 
 struct OverviewView: View {
     @Binding var tab: AppTab
@@ -15,6 +15,8 @@ struct OverviewView: View {
     @Query(sort: \MoneyCategory.sortOrder) private var categories: [MoneyCategory]
     @Query(sort: \Account.sortOrder) private var accounts: [Account]
     @Query private var rates: [ExchangeRate]
+    @Query private var rules: [RecurringRule]
+    @Query private var reservedFunds: [ReservedFund]
     @AppStorage("openingBalanceCents") private var opening = 0
     @AppStorage("lastBackupAt") private var lastBackupAt = 0.0
 
@@ -24,7 +26,7 @@ struct OverviewView: View {
     private static var initialPath: [OverviewRoute] {
         #if DEBUG
         if let i = CommandLine.arguments.firstIndex(of: "-MONOScreen"), i + 1 < CommandLine.arguments.count {
-            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; default: break }
+            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; case "tools": return [.tools]; case "safe": return [.safeToSpend]; default: break }
         }
         #endif
         return []
@@ -62,6 +64,7 @@ struct OverviewView: View {
                         }
                         .buttonStyle(PressableStyle())
                     }
+                    if !txs.isEmpty || !accounts.isEmpty { safeLine(books).entrance(1) }
                     if books.hasSeveralAccounts { accountsCard(books).card().entrance(1) }
                     metrics(income: t.income, expense: t.expense, budget: budget, rate: rate).entrance(1)
                     cashFlow.card().entrance(2)
@@ -85,11 +88,14 @@ struct OverviewView: View {
             .monoScreen()
             .navigationTitle("Overview")
             .navigationDestination(for: OverviewRoute.self) { r in
-                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView() }
+                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView(); case .tools: ToolsView(); case .safeToSpend: SafeToSpendView() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { path.append(.settings) } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { path.append(.tools) } label: { Image(systemName: "square.grid.2x2") }.accessibilityLabel("Tools")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { path.append(.analytics) } label: { Image(systemName: "chart.xyaxis.line") }.accessibilityLabel("Analytics")
@@ -179,6 +185,29 @@ struct OverviewView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .glass(radius: 22)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// One quiet line; the full breakdown is a tap away.
+    private func safeLine(_ books: Books) -> some View {
+        let r = SafeToSpend.make(config: SafeToSpend.Config.load(), books: books, planned: planned, rules: rules, goals: goals, costs: costs,
+                                 entries: entries, categories: categories, limits: limits, monthBudgets: monthBudgets, reserved: reservedFunds)
+        return Button { path.append(.safeToSpend) } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "shield.lefthalf.filled").foregroundStyle(r.isShortfall ? Theme.warning : Theme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(r.isShortfall ? "Short by \(Money.format(abs(r.flexible)))" : "Safe to spend \(Money.format(r.flexible))")
+                        .font(.subheadline.weight(.medium)).foregroundStyle(Theme.ink)
+                    Text("until \(r.horizonEnd.formatted(.dateTime.day().month(.abbreviated))) · after bills, savings and essentials")
+                        .font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(Theme.inkTertiary)
+            }
+            .glass(padding: 14, radius: 20)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
         .accessibilityElement(children: .combine)
     }
 

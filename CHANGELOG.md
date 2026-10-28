@@ -2,6 +2,15 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 1.7 · 29 Oct 2026 · Goals and Safe to spend
+- Safe to spend: how much you can spend without touching unpaid bills, planned savings, essential budgets or reserved funds, with every line switchable and expandable. Nothing is counted twice.
+- Goals now have a description, a priority, their own currency, a start date and a weekly, fortnightly or monthly contribution schedule.
+- Each goal shows what to save each period, the monthly equivalent (what's left ÷ months left) and an estimated completion date, clearly marked as an estimate.
+- Goals in another currency are converted to your reporting currency only with a rate you entered; contributions from an account in a different currency record both amounts.
+- A Tools screen, one tap from Overview, for advanced features.
+- Mark categories as Essential and set aside reserved funds.
+- Backup format 3 saves the new goal fields, essential flags and reserved funds.
+
 ## 1.6 · 29 Oct 2026 · System Theme
 - One System Theme screen in Settings: colours, appearance mode, Liquid Glass and the app icon, switched with a single Theme / App icon control.
 - Choose secondary text and border colours, or leave them automatic.

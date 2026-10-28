@@ -292,3 +292,27 @@ final class BackupV3Tests: XCTestCase {
         XCTAssertThrowsError(try BackupService.validate(goal { $0.frequency = "daily" }))
     }
 }
+
+@MainActor
+final class EssentialSeedingTests: XCTestCase {
+    func testMarksOnlyTheUsualDefaultsOnceAndLeavesYourCategoriesAlone() throws {
+        let (_, ctx) = try makeContext()
+        let d = UserDefaults(suiteName: "mono-ess-\(UUID().uuidString)")!
+        let groceries = MoneyCategory(name: "Groceries", symbol: "cart", kind: .expense, isDefault: true)
+        let fun = MoneyCategory(name: "Entertainment", symbol: "film", kind: .expense, isDefault: true)
+        let mine = MoneyCategory(name: "Bills", symbol: "doc", kind: .expense, isDefault: false)   // same name, but yours
+        let salary = MoneyCategory(name: "Salary", symbol: "banknote", kind: .income, isDefault: true)
+        [groceries, fun, mine, salary].forEach(ctx.insert); try ctx.save()
+        DefaultCategories.seedEssentialsIfNeeded(ctx, defaults: d)
+        XCTAssertTrue(groceries.isEssential); XCTAssertFalse(fun.isEssential); XCTAssertFalse(mine.isEssential); XCTAssertFalse(salary.isEssential)
+        groceries.isEssential = false   // the user turns it off
+        DefaultCategories.seedEssentialsIfNeeded(ctx, defaults: d)
+        XCTAssertFalse(groceries.isEssential, "seeding runs once and never overrides a choice")
+    }
+    func testWaitsUntilCategoriesExist() throws {
+        let (_, ctx) = try makeContext()
+        let d = UserDefaults(suiteName: "mono-ess-\(UUID().uuidString)")!
+        DefaultCategories.seedEssentialsIfNeeded(ctx, defaults: d)
+        XCTAssertFalse(d.bool(forKey: DefaultCategories.essentialSeededKey), "nothing to mark yet, so it will try again later")
+    }
+}

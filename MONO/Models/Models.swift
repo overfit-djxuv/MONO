@@ -415,13 +415,28 @@ enum DefaultCategories {
     ]
 
     static let seededKey = "didSeedCategories"
+    static let essentialSeededKey = "didSeedEssentialCategories.v1"
+    /// Spending most people cannot skip. Only a starting point: every category's switch is yours to change.
+    static let essentialDefaults: Set<String> = ["Groceries", "Transportation", "Bills", "Health"]
+
+    /// One-time: mark the usual essentials on categories made before the Essential switch existed. Never touches custom categories.
+    static func seedEssentialsIfNeeded(_ context: ModelContext, defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: essentialSeededKey) else { return }
+        let all = (try? context.fetch(FetchDescriptor<MoneyCategory>())) ?? []
+        guard !all.isEmpty else { return }   // nothing to mark yet; fresh categories are created with the flag
+        for c in all where c.isDefault && c.kind == .expense && essentialDefaults.contains(c.name) { c.isEssential = true }
+        try? context.save()
+        defaults.set(true, forKey: essentialSeededKey)
+    }
 
     static func seedIfNeeded(_ context: ModelContext) {
         guard !UserDefaults.standard.bool(forKey: seededKey) else { return }
         let existing = (try? context.fetchCount(FetchDescriptor<MoneyCategory>())) ?? 0
         if existing == 0 {
             for (i, c) in expense.enumerated() {
-                context.insert(MoneyCategory(name: c.0, symbol: c.1, kind: .expense, isDefault: true, sortOrder: i))
+                let m = MoneyCategory(name: c.0, symbol: c.1, kind: .expense, isDefault: true, sortOrder: i)
+                m.isEssential = essentialDefaults.contains(c.0)
+                context.insert(m)
             }
             for (i, c) in income.enumerated() {
                 context.insert(MoneyCategory(name: c.0, symbol: c.1, kind: .income, isDefault: true, sortOrder: 100 + i))
@@ -429,5 +444,6 @@ enum DefaultCategories {
             try? context.save()
         }
         UserDefaults.standard.set(true, forKey: seededKey)
+        UserDefaults.standard.set(true, forKey: essentialSeededKey)
     }
 }

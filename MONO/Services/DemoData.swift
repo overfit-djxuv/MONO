@@ -38,6 +38,7 @@ enum DemoData {
         }
         context.insert(PlannedExpense(title: "Car insurance", amountCents: 98_000,
                                       dueDate: cal.date(byAdding: .day, value: 12, to: now) ?? now, category: "Transportation"))
+        context.insert(ReservedFund(name: "Emergency buffer", amountCents: 200_000))
         context.insert(PlannedExpense(title: "Phone bill", amountCents: 8_900,
                                       dueDate: cal.date(byAdding: .day, value: 4, to: now) ?? now, category: "Bills"))
 
@@ -52,9 +53,11 @@ enum DemoData {
         for back in 0...2 {
             context.insert(GoalEntry(goalID: trip.id, amountCents: 50_000, date: day(thisMonth.adding(-back), 5), note: "Monthly saving"))
         }
+        trip.priority = .high; trip.details = "Cherry blossom season with Mei"; trip.frequency = .monthly
         let laptop = SavingsGoal(name: "New laptop", kind: .general, symbol: "laptopcomputer")
+        laptop.details = "For video editing"; laptop.priority = .medium; laptop.frequency = .weekly; laptop.startDate = cal.date(byAdding: .month, value: -1, to: now)
         laptop.targetCents = 600_000; laptop.deadline = cal.date(byAdding: .month, value: 10, to: now)
-        laptop.plannedMonthlyCents = 50_000
+        laptop.plannedMonthlyCents = 12_000
         context.insert(laptop)
         context.insert(GoalEntry(goalID: laptop.id, amountCents: 100_000, date: day(thisMonth.adding(-1), 10), note: ""))
 

@@ -78,6 +78,7 @@ struct RootView: View {
         .task {
             // Account setup doesn't display anything, so it runs before the lock prompt.
             DefaultCategories.seedIfNeeded(context)
+            DefaultCategories.seedEssentialsIfNeeded(context)
             migrateAccounts()
             if lock.isLocked { await lock.unlock() }
             postRecurring()
