@@ -2,6 +2,18 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 2.0.1 · 29 Oct 2026 · Finishing touches
+- Goals can be marked completed or archived. They leave the active lists, Safe to spend and forecasts, keep their history, and sit under Completed and archived where you can reopen or restore them. Money already set aside stays set aside until you withdraw it.
+- Attach a receipt from a transaction: scan or choose a photo in the new-transaction form, or add one later from its details. Only fields you left empty are filled in from the receipt.
+- Filter transactions by amount, from and to.
+- A category in Budget now shows its spending by week of the month.
+- Move a shopping item to another list by touching and holding it.
+
+### Improvements
+- A short confirmation appears after saving an expense, income, transfer, goal money, a receipt or a recorded purchase.
+- Lists animate when items are added, removed, filtered or marked bought, and a funded or completed goal gets a small check. All motion is skipped when Reduce Motion is on.
+- Backup format 6 saves completed and archived goals; older backups still restore.
+
 ## 2.0 · 29 Oct 2026 · A calmer redesign
 - Dashboard: Overview is now the Dashboard. One balance block with Safe to spend inside it, a three-figure summary, quick actions (expense, income, transfer, to goal, shopping, scan), at most one insight, your goals, what is coming up and recent transactions.
 - Transactions: switch between this month, last month, all time or a custom range, with a compact income, spent and net strip, day totals, removable filter chips and a details screen that shows the receipt and the safe ways to edit or delete.

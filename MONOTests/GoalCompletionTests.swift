@@ -52,3 +52,17 @@ final class GoalCompletionTests: XCTestCase {
         XCTAssertTrue(try ctx.fetch(FetchDescriptor<SavingsGoal>()).allSatisfy(\.isOngoing))
     }
 }
+
+@MainActor
+final class ToastCenterTests: XCTestCase {
+    func testAToastShowsThenClearsAndANewerOneIsNotClearedByTheOlderTimer() async throws {
+        let t = ToastCenter()
+        t.show("First", seconds: 0.15)
+        XCTAssertEqual(t.message, "First")
+        t.show("Second", seconds: 0.6)
+        try await Task.sleep(for: .seconds(0.3))
+        XCTAssertEqual(t.message, "Second", "the first timer must not remove the second message")
+        try await Task.sleep(for: .seconds(0.5))
+        XCTAssertNil(t.message)
+    }
+}

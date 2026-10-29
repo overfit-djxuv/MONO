@@ -41,6 +41,7 @@ struct TransactionsView: View {
     @State private var maxAmount: Int?
     @State private var showAmount = false
     @State private var detail: TransactionRecord?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var receipts: [Receipt]
     @State private var showAdd = false
     @State private var showCSV = false
@@ -190,6 +191,7 @@ struct TransactionsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .animation(reduceMotion ? nil : Theme.easeOut(0.22), value: filtered.map(\.id))
         .environment(\.defaultMinListRowHeight, 52)
         .listSectionSpacing(10)
         .scrollContentBackground(.hidden)

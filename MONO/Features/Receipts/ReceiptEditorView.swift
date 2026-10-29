@@ -234,7 +234,7 @@ struct ReceiptEditorView: View {
     }
 
     private func finish() {
-        do { try context.save(); Haptics.success(); onFinish() } catch { errors.report(error, doing: "Couldn’t save the receipt") }
+        do { try context.save(); Haptics.success(); ToastCenter.shared.show("Receipt saved"); onFinish() } catch { errors.report(error, doing: "Couldn’t save the receipt") }
     }
 
     private func deleteReceipt() {

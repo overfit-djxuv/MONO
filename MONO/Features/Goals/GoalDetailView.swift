@@ -75,7 +75,7 @@ struct GoalDetailView: View {
                               : "Its history and costs will be removed.")
         }
         .confirmationDialog("Mark “\(goal.name)” as completed?", isPresented: $confirmComplete, titleVisibility: .visible) {
-            Button("Mark as completed") { goal.completedAt = .now; saveGoal(); Haptics.success() }
+            Button("Mark as completed") { goal.completedAt = .now; saveGoal(); Haptics.success(); ToastCenter.shared.show("Goal completed") }
         } message: { Text(heldMessage) }
         .confirmationDialog("Archive “\(goal.name)”?", isPresented: $confirmArchive, titleVisibility: .visible) {
             Button("Archive") { goal.isArchived = true; saveGoal(); Haptics.tap(); dismiss() }
@@ -97,9 +97,16 @@ struct GoalDetailView: View {
 
     // MARK: Sections
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private func hero(_ p: SavingsPlan) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                if p.status == .funded || goal.completedAt != nil {
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.accent)
+                        .symbolEffect(.bounce, options: .nonRepeating, value: reduceMotion ? 0 : (goal.completedAt != nil ? 1 : 0))
+                        .accessibilityHidden(true)
+                }
                 Text(goal.kind == .trip ? "Saved for trip" : "Saved").font(.footnote).foregroundStyle(Theme.inkSecondary)
                 Spacer()
                 StatusChip(text: goal.completedAt != nil ? "Completed" : (goal.isArchived ? "Archived" : p.statusText), tint: goal.completedAt != nil ? Theme.accent : (goal.isArchived ? Theme.inkSecondary : p.statusTint))

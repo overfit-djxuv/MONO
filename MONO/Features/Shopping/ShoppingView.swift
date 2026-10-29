@@ -195,7 +195,7 @@ struct ShoppingView: View {
         let cats = categories.filter { $0.kind == .expense }
         let category = cats.contains { $0.name == (list == .grocery ? "Groceries" : "Shopping") } ? (list == .grocery ? "Groceries" : "Shopping") : (cats.first?.name ?? "Groceries")
         context.insert(ShoppingItem(name: p.name, quantity: p.quantity, estimatedCents: p.priceCents, category: category, priority: .medium, listKind: list))
-        do { try context.save(); quick = ""; Haptics.tap() } catch { errors.report(error, doing: "Couldn’t add item") }
+        do { try withAnimation(Theme.easeOut(0.22)) { try context.save() }; quick = ""; Haptics.tap() } catch { errors.report(error, doing: "Couldn’t add item") }
     }
 
     // MARK: Summary
@@ -228,14 +228,16 @@ struct ShoppingView: View {
     // MARK: Actions
 
     private func toggle(_ item: ShoppingItem) {
-        item.isPurchased.toggle()
-        item.purchasedAt = item.isPurchased ? .now : nil
+        withAnimation(Theme.easeOut(0.24)) {
+            item.isPurchased.toggle()
+            item.purchasedAt = item.isPurchased ? .now : nil
+        }
         Haptics.tap()
         do { try context.save() } catch { errors.report(error, doing: "Couldn’t update item") }
     }
 
     private func record(_ item: ShoppingItem) {
-        do { try Ledger.recordPurchase(item, existing: txs, in: context); Haptics.success() }
+        do { try Ledger.recordPurchase(item, existing: txs, in: context); Haptics.success(); ToastCenter.shared.show("Recorded as an expense") }
         catch { errors.report(error, doing: "Couldn’t record expense") }
     }
 }

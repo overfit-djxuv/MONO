@@ -54,6 +54,7 @@ struct RootView: View {
                 .tag(AppTab.shopping)
         }
         .tint(Theme.accent)
+        .toastHost()
         .sheet(item: $launched) { a in
             switch a {
             case .addExpense: TransactionForm(editing: nil, kind: .expense)

@@ -278,7 +278,7 @@ struct MoveMoneySheet: View {
             try Ledger.moveMoney(goal: goal, cents: cents, withdraw: withdraw, date: date, note: note,
                                  entries: entries, affectsCash: !fromExisting, accountID: account?.id,
                                  accountAmountCents: crossCurrency && !fromExisting ? (accountCents ?? 0) : 0, in: context)
-            Haptics.success(); dismiss()
+            Haptics.success(); ToastCenter.shared.show(withdraw ? "Taken out of \(goal.name)" : "Added to \(goal.name)"); dismiss()
         } catch { errors.report(error, doing: "Couldn’t save") }
     }
 }

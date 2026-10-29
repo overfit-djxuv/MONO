@@ -17,6 +17,9 @@ struct BudgetView: View {
     @State private var showTotal = false
     @State private var limitSheet: LimitTarget?
     @State private var plannedSheet: PlannedTarget?
+    #if DEBUG
+    @State private var openFirstCategory = CommandLine.arguments.contains("-MONOOpenCategory")
+    #endif
 
     private var current: MonthKey { MonthKey(.now) }
     /// Spending in the reporting currency (foreign-currency records converted with your rates, transfers excluded).
@@ -59,6 +62,11 @@ struct BudgetView: View {
                     .accessibilityLabel("Budget actions")
                 }
             }
+            #if DEBUG
+            .navigationDestination(isPresented: $openFirstCategory) {
+                if let line = summary.lines.first { CategoryBudgetDetail(month: month, line: line, symbol: categories.symbol(for: line.category), transactions: reported, limit: nil) }
+            }
+            #endif
             .sheet(isPresented: $showTotal) { BudgetTotalSheet(month: month, current: explicitTotal, derived: summary.lines.reduce(0) { $0 + $1.limit }) }
             .sheet(item: $limitSheet) { LimitSheet(month: month, editing: $0.limit) }
             .sheet(item: $plannedSheet) { PlannedSheet(editing: $0.expense) }

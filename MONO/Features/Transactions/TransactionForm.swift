@@ -308,7 +308,7 @@ struct TransactionForm: View {
                                               date: date, title: cleanTitle, notes: notes, in: context)
                 }
                 lastAccountID = from.id.uuidString
-                Haptics.success(); dismiss()
+                Haptics.success(); ToastCenter.shared.show("Transfer saved"); dismiss()
             } catch { errors.report(error, doing: "Couldn’t save the transfer") }
             return
         }
@@ -340,7 +340,8 @@ struct TransactionForm: View {
                                            totalCents: d.parsed.totalCents ?? cents, taxCents: d.parsed.taxCents ?? 0,
                                            currencyCode: (from?.currencyCode ?? Money.reporting.code), category: category, in: context)
             }
-            try context.save(); lastAccountID = from?.id.uuidString ?? ""; Haptics.success(); dismiss()
+            try context.save(); lastAccountID = from?.id.uuidString ?? ""; Haptics.success()
+            ToastCenter.shared.show(editing == nil ? (kind == .income ? "Income saved" : "Expense saved") : "Changes saved"); dismiss()
         } catch { errors.report(error, doing: "Couldn’t save") }
     }
 }
