@@ -11,8 +11,8 @@ export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
 PROJECT="$HOME/MONO/MONO.xcodeproj"
 SCRIPT_DIR="${0:A:h}"
 [[ -f "$SCRIPT_DIR/local.env" ]] && source "$SCRIPT_DIR/local.env"
-if [[ -z "$DEVICE" ]]; then echo "Set DEVICE (your iPhone UDID) in tools/local.env; see tools/local.env.example" >&2; exit 1; fi
-BUNDLE="com.example.monoapp"
+if [[ -z "$DEVICE" || -z "$BUNDLE_ID_PREFIX" ]]; then echo "Set DEVICE and BUNDLE_ID_PREFIX in tools/local.env; see tools/local.env.example" >&2; exit 1; fi
+BUNDLE="$BUNDLE_ID_PREFIX.monoapp"
 STATE="$HOME/Library/Application Support/MONO-refresh"
 DERIVED="$HOME/Library/Caches/MONO-refresh-build"
 LOG="$STATE/refresh.log"

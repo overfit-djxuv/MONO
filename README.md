@@ -8,10 +8,11 @@ No account, no backend, no bank connection, no analytics, no network code.
 Requirements: Xcode 26+ (built and tested with Xcode 27.1), iOS 17+ device or simulator.
 
 ```sh
-open MONO.xcodeproj          # the project is committed; XcodeGen is only needed to regenerate it
+tools/generate.sh             # creates MONO.xcodeproj (needs XcodeGen: brew install xcodegen)
+open MONO.xcodeproj
 ```
 
-Regenerate the project after editing `project.yml`: `brew install xcodegen && xcodegen generate`.
+Regenerate the project after editing `project.yml`: `tools/generate.sh`.
 
 Simulator: pick an iPhone in the toolbar and press **Run** (⌘R).
 Tests: **Product ▸ Test** (⌘U), or
@@ -26,7 +27,7 @@ If `xcodebuild` says it needs Xcode, point it at the app once: `sudo xcode-selec
 
 1. **Apple ID in Xcode.** Xcode ▸ Settings ▸ Accounts ▸ **+** ▸ Apple ID. A free Apple ID works.
 2. **Signing.** Select the project ▸ target **MONO** ▸ *Signing & Capabilities*. Tick *Automatically manage signing* and choose your **Team**.
-   Change **Bundle Identifier** (`com.example.mono`) to something unique to you, e.g. `com.yourname.mono`. Free accounts reject IDs already used by anyone else.
+   Your team and bundle id come from `tools/local.env` (copy `tools/local.env.example`), then run `tools/generate.sh`. The bundle id (`<BUNDLE_ID_PREFIX>.monoapp`) must be unique to you; free accounts reject IDs already used by anyone else.
 3. **Connect the phone** with a cable, unlock it, tap **Trust This Computer**. It should appear in Xcode's device menu (first time Xcode indexes it can take a minute).
 4. **Developer Mode** (iOS 16 and later, required once). On the iPhone: Settings ▸ Privacy & Security ▸ **Developer Mode** ▸ On, then restart and confirm. The switch only appears after Xcode has tried to install something on the device.
 5. **Run.** Choose your iPhone as the destination and press ⌘R.

@@ -25,7 +25,7 @@ enum QuickAction: String, CaseIterable, Identifiable, Codable {
         case .safeToSpend: "shield.lefthalf.filled"
         }
     }
-    static let shortcutPrefix = "com.example.monoapp.action."
+    static let shortcutPrefix = (Bundle.main.bundleIdentifier ?? "app.mono") + ".action."
     var shortcutType: String { Self.shortcutPrefix + rawValue }
     init?(shortcutType: String) {
         guard shortcutType.hasPrefix(Self.shortcutPrefix) else { return nil }

@@ -5,15 +5,15 @@
 # - Each copy is checked with SQLite's integrity check on a scratch copy; a damaged copy is discarded and retried.
 # - Keeps the newest KEEP backups (default 14) and deletes older ones.
 # Restore (only ever over the installed app, never after deleting it): copy the files back with
-#   xcrun devicectl device copy to --device <UDID> --domain-type appDataContainer --domain-identifier com.example.monoapp ...
+#   xcrun devicectl device copy to --device <UDID> --domain-type appDataContainer --domain-identifier <your bundle id> ...
 
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
 
 SCRIPT_DIR="${0:A:h}"
 [[ -f "$SCRIPT_DIR/local.env" ]] && source "$SCRIPT_DIR/local.env"
-if [[ -z "$DEVICE" ]]; then echo "Set DEVICE (your iPhone UDID) in tools/local.env; see tools/local.env.example" >&2; exit 1; fi
-BUNDLE="com.example.monoapp"
+if [[ -z "$DEVICE" || -z "$BUNDLE_ID_PREFIX" ]]; then echo "Set DEVICE and BUNDLE_ID_PREFIX in tools/local.env; see tools/local.env.example" >&2; exit 1; fi
+BUNDLE="$BUNDLE_ID_PREFIX.monoapp"
 ROOT="$HOME/MONO-backups"
 STATE="$HOME/Library/Application Support/MONO-refresh"
 LOG="$STATE/backup.log"

@@ -4,7 +4,7 @@ import Security
 /// The backup passphrase for automatic encrypted backups lives here, in this iPhone's Keychain: separate from every backup file,
 /// never synced, and unavailable until the phone has been unlocked once after a restart.
 enum Keychain {
-    private static let service = "com.example.monoapp.backup"
+    private static let service = (Bundle.main.bundleIdentifier ?? "app.mono") + ".backup"
 
     static func set(_ value: String, account: String) -> Bool {
         delete(account: account)
