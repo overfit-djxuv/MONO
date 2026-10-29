@@ -2,6 +2,23 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 1.9 · 29 Oct 2026 · Tools, reviews and safer backups
+- Purchase simulator: see what a purchase does to your safe-to-spend, goals and cash before you buy, with a clear verdict.
+- What-if lab: change income, spending or a goal and see the next 12 months, kept apart from your real records.
+- Monthly review: a timeline of past months with income, spending, savings rate, categories, patterns and things worth a look. Tap any figure to see the transactions behind it, and export as PDF, Markdown or CSV.
+- Backup & recovery: manual and automatic backups, a history with sizes and status, retention, and optional passphrase encryption.
+- Restore with a preview of what's inside, a test restore, an automatic safety copy and an explicit confirmation.
+- Version history: changes grouped into features, improvements, fixes and security, with a rollback explanation.
+
+### Improvements
+- Backups now include settings, themes, What-if scenarios and quick actions (never the Face ID lock).
+- The Overview backup reminder now asks for a copy saved outside MONO, because backups kept inside the app are deleted with it.
+- Backup format 5.
+
+### Security
+- Backup passphrases are stored in the iPhone Keychain, never inside a backup file.
+- Every backup is checksummed, verified after writing and test-restored before it counts as a success.
+
 ## 1.8 · 29 Oct 2026 · Subscriptions, insights and privacy
 - Hide amounts: an eye on Overview turns every money figure into dots and blurs charts, like a payment app. It can also hide automatically when the app opens, and reminder text follows it.
 - Subscriptions & bills: weekly, fortnightly, monthly, quarterly, yearly or custom schedules, with active, paused and cancelled states, notes, the paying account and your own reminder lead time.

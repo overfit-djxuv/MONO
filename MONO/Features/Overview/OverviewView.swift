@@ -26,7 +26,7 @@ struct OverviewView: View {
     private static var initialPath: [OverviewRoute] {
         #if DEBUG
         if let i = CommandLine.arguments.firstIndex(of: "-MONOScreen"), i + 1 < CommandLine.arguments.count {
-            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; case "tools": return [.tools]; case "safe": return [.safeToSpend]; case "subs": return [.subscriptions]; case "insights": return [.insights]; case "purchase": return [.purchase]; case "whatif": return [.whatIf]; case "review": return [.review]; default: break }
+            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; case "tools": return [.tools]; case "safe": return [.safeToSpend]; case "subs": return [.subscriptions]; case "insights": return [.insights]; case "purchase": return [.purchase]; case "whatif": return [.whatIf]; case "review": return [.review]; case "backup": return [.backup]; default: break }
         }
         #endif
         return []

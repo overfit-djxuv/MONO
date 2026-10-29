@@ -277,6 +277,13 @@ final class IconAndHistoryTests: XCTestCase {
         XCTAssertEqual(versions.first, VersionHistory.current, "add a release entry whenever MARKETING_VERSION changes")
         XCTAssertTrue(VersionHistory.releases.allSatisfy { !$0.notes.isEmpty })
     }
+    func testChangelogFileListsTheSameReleasesAsTheApp() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "CHANGELOG.md")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let headings = text.split(separator: "\n").filter { $0.hasPrefix("## ") }.map { $0.dropFirst(3).components(separatedBy: " · ") }
+        XCTAssertEqual(headings.map { $0[0] }, VersionHistory.releases.map(\.version))
+        XCTAssertEqual(headings.map { $0.last ?? "" }, VersionHistory.releases.map(\.title))
+    }
 }
 
 final class CSVLoadTests: XCTestCase {

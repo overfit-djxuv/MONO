@@ -5,12 +5,32 @@ struct Release: Identifiable, Equatable {
     let version: String
     let date: String
     let title: String
+    /// New features.
     let notes: [String]
+    var improvements: [String] = []
+    var fixes: [String] = []
+    var security: [String] = []
+    /// True when the release day isn't recorded precisely.
+    var approximateDate = false
     var id: String { version }
+    var changeCount: Int { notes.count + improvements.count + fixes.count + security.count }
 }
 
 enum VersionHistory {
     static let releases: [Release] = [
+        Release(version: "1.9", date: "29 Oct 2026", title: "Tools, reviews and safer backups",
+                notes: ["Purchase simulator: see what a purchase does to your safe-to-spend, goals and cash before you buy, with a clear verdict.",
+                        "What-if lab: change income, spending or a goal and see the next 12 months, kept apart from your real records.",
+                        "Monthly review: a timeline of past months with income, spending, savings rate, categories, patterns and things worth a look. Tap any figure to see the transactions behind it, and export as PDF, Markdown or CSV.",
+                        "Backup & recovery: manual and automatic backups, a history with sizes and status, retention, and optional passphrase encryption.",
+                        "Restore with a preview of what's inside, a test restore, an automatic safety copy and an explicit confirmation.",
+                        "Version history: changes grouped into features, improvements, fixes and security, with a rollback explanation."],
+                improvements: ["Backups now include settings, themes, What-if scenarios and quick actions (never the Face ID lock).",
+                               "The Overview backup reminder now asks for a copy saved outside MONO, because backups kept inside the app are deleted with it.",
+                               "Backup format 5."],
+                fixes: [],
+                security: ["Backup passphrases are stored in the iPhone Keychain, never inside a backup file.",
+                           "Every backup is checksummed, verified after writing and test-restored before it counts as a success."]),
         Release(version: "1.8", date: "29 Oct 2026", title: "Subscriptions, insights and privacy",
                 notes: ["Hide amounts: an eye on Overview turns every money figure into dots and blurs charts, like a payment app. It can also hide automatically when the app opens, and reminder text follows it.",
                         "Subscriptions & bills: weekly, fortnightly, monthly, quarterly, yearly or custom schedules, with active, paused and cancelled states, notes, the paying account and your own reminder lead time.",
@@ -63,15 +83,15 @@ enum VersionHistory {
                         "Card-based redesign."]),
         Release(version: "1.1", date: "29 Oct 2026", title: "Safer and smarter",
                 notes: ["Backup reminder, and Back up now saves to Files or iCloud Drive.",
-                        "Optional Face ID lock.",
                         "Installation status: shows when this copy of the app needs renewing.",
                         "Recurring monthly transactions, posted automatically.",
-                        "CSV import with column matching, a preview and duplicate protection."]),
+                        "CSV import with column matching, a preview and duplicate protection."],
+                security: ["Optional Face ID lock."]),
         Release(version: "1.0", date: "Oct 2026", title: "First release",
                 notes: ["Overview, transactions, budgets with category limits, shopping lists, savings goals and trip planning, analytics.",
                         "Works fully offline with no account, no bank connection and no analytics.",
-                        "JSON backup and restore, and CSV export.",
-                        "App-switcher privacy cover."]),
+                        "JSON backup and restore, and CSV export."],
+                security: ["App-switcher privacy cover."], approximateDate: true),
     ]
 
     static var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
