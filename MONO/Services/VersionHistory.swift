@@ -18,6 +18,19 @@ struct Release: Identifiable, Equatable {
 
 enum VersionHistory {
     static let releases: [Release] = [
+        Release(version: "2.0", date: "29 Oct 2026", title: "A calmer redesign",
+                notes: ["Dashboard: Overview is now the Dashboard. One balance block with Safe to spend inside it, a three-figure summary, quick actions (expense, income, transfer, to goal, shopping, scan), at most one insight, your goals, what is coming up and recent transactions.",
+                        "Transactions: switch between this month, last month, all time or a custom range, with a compact income, spent and net strip, day totals, removable filter chips and a details screen that shows the receipt and the safe ways to edit or delete.",
+                        "Goals show saved, target, percent, status, what to save each period and the date in two lines. Their detail screen leads with the key numbers and keeps the rest under Plan details, plus a progress chart.",
+                        "Budget: Left to spend first, then categories you can open to see the real transactions behind them, last month for comparison, and a button to adjust the limit.",
+                        "Shopping: more lists (Personal, Electronics, Trip essentials), a quick-add line (“milk 2 4.50”), a Simulate action that tries a purchase without recording anything, and Link to connect a bought item to an expense you already entered."],
+                improvements: ["One surface style, one progress bar (sage, bronze at 80%, clay over), one summary strip and one row style replace the three card styles.",
+                               "Header icons are now an eye (hide amounts) and a More menu holding Analytics, Tools, Receipts, Accounts, Backup and Settings.",
+                               "Goals now come before Shopping in the tab bar.",
+                               "A possible duplicate transaction is marked in the list and explained on its details screen.",
+                               "Deleting a transaction keeps its receipt, which simply becomes unlinked."],
+                fixes: [],
+                security: []),
         Release(version: "1.9", date: "29 Oct 2026", title: "Tools, reviews and safer backups",
                 notes: ["Purchase simulator: see what a purchase does to your safe-to-spend, goals and cash before you buy, with a clear verdict.",
                         "What-if lab: change income, spending or a goal and see the next 12 months, kept apart from your real records.",

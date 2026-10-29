@@ -285,14 +285,14 @@ struct LimitRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(line.category).font(.body).foregroundStyle(Theme.ink)
                     Text("\(Money.format(line.spent)) of \(Money.format(line.limit))")
-                        .font(.caption).foregroundStyle(Theme.inkSecondary)
+                        .font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1).minimumScaleFactor(0.75)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     if line.overBy > 0 {
                         Text("\(Money.format(line.overBy)) over").font(.figure(14)).foregroundStyle(Theme.danger)
                     } else {
-                        Text("\(Money.format(line.remaining)) left").font(.figure(14)).foregroundStyle(line.state == .warning ? Theme.warning : Theme.ink)
+                        Text("\(Money.format(line.remaining)) left").font(.figure(14)).foregroundStyle(line.state == .warning ? Theme.warning : Theme.ink).lineLimit(1).minimumScaleFactor(0.75)
                     }
                 }
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.inkTertiary)
