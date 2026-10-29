@@ -91,3 +91,7 @@ Data lives in an on-device SwiftData store with iOS file protection (`completeUn
 ## Debug-only launch arguments (compiled out of Release)
 
 `-MONODemo` sample data · `-MONOReset <token>` wipe once per token · `-MONOTab 0…4` · `-MONOScreen analytics|settings`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
