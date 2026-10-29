@@ -2,6 +2,15 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 1.8 · 29 Oct 2026 · Subscriptions, insights and privacy
+- Hide amounts: an eye on Overview turns every money figure into dots and blurs charts, like a payment app. It can also hide automatically when the app opens, and reminder text follows it.
+- Subscriptions & bills: weekly, fortnightly, monthly, quarterly, yearly or custom schedules, with active, paused and cancelled states, notes, the paying account and your own reminder lead time.
+- Payments are now confirmed by you. A due payment shows as Due; tapping Mark paid records the real transaction and moves to the next date. The same payment can never be recorded twice, and nothing is deducted on its own. (Earlier versions recorded monthly payments automatically.)
+- Estimated monthly and yearly cost of your subscriptions, clearly marked as an estimate.
+- Spending insights: daily average, this month against the same days last month, weekly pattern, food and groceries by month, biggest expenses, what has changed over six months, subscription costs and budget warnings. Each card says whether it shows actual spending or an estimate.
+- Choose the time of day reminders arrive. Subscription payments appear in Upcoming on Overview and in Safe to spend, including overdue ones.
+- Backup format 4 saves schedules, statuses and which payments have been recorded.
+
 ## 1.7 · 29 Oct 2026 · Goals and Safe to spend
 - Safe to spend: how much you can spend without touching unpaid bills, planned savings, essential budgets or reserved funds, with every line switchable and expandable. Nothing is counted twice.
 - Goals now have a description, a priority, their own currency, a start date and a weekly, fortnightly or monthly contribution schedule.

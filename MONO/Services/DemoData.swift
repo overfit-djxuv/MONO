@@ -39,6 +39,28 @@ enum DemoData {
         context.insert(PlannedExpense(title: "Car insurance", amountCents: 98_000,
                                       dueDate: cal.date(byAdding: .day, value: 12, to: now) ?? now, category: "Transportation"))
         context.insert(ReservedFund(name: "Emergency buffer", amountCents: 200_000))
+        // Subscriptions: one due now, one coming up, a weekly, a quarterly and a yearly, plus confirmed past payments for the charts.
+        func sub(_ title: String, _ cents: Int, _ cat: String, _ unit: RecurrenceUnit, _ n: Int, dueIn days: Int) -> RecurringRule {
+            let due = cal.date(byAdding: .day, value: days, to: cal.startOfDay(for: now)) ?? now
+            let r = RecurringRule(title: title, amountCents: cents, kind: .expense, category: cat, dayOfMonth: cal.component(.day, from: due),
+                                  nextMonthKey: MonthKey(due).string)
+            r.unit = unit; r.interval = n; r.nextDueDate = due
+            context.insert(r); return r
+        }
+        let netflix = sub("Netflix", 5_490, "Subscriptions", .month, 1, dueIn: 3)
+        let spotify = sub("Spotify", 1_590, "Subscriptions", .month, 1, dueIn: -1)
+        _ = sub("Cleaner", 6_000, "Bills", .week, 1, dueIn: 2)
+        _ = sub("Car insurance", 98_000, "Transportation", .month, 3, dueIn: 40)
+        _ = sub("iCloud+", 11_900, "Subscriptions", .year, 1, dueIn: 120)
+        let gym = sub("Gym", 12_900, "Health", .month, 1, dueIn: 9); gym.isActive = false
+        for back in 1...4 {
+            for (r, cents) in [(netflix, 5_490), (spotify, 1_590)] {
+                let when = day(thisMonth.adding(-back), 5)
+                let t = TransactionRecord(amountCents: cents, kind: .expense, category: "Subscriptions", date: when, title: r.title)
+                t.occurrenceKey = "\(r.id.uuidString)|\(MonthKey(when).string)-05"
+                context.insert(t)
+            }
+        }
         context.insert(PlannedExpense(title: "Phone bill", amountCents: 8_900,
                                       dueDate: cal.date(byAdding: .day, value: 4, to: now) ?? now, category: "Bills"))
 

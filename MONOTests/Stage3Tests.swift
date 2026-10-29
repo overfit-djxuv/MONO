@@ -233,3 +233,85 @@ final class SubscriptionIntegrationTests: XCTestCase {
         try? FileManager.default.removeItem(at: AccountMigration.safetyDirectory)
     }
 }
+
+// MARK: - Insights
+
+final class InsightsTests: XCTestCase {
+    private func e(_ cents: Int, _ y: Int, _ m: Int, _ d: Int, _ cat: String = "Food", _ title: String = "") -> TransactionRecord {
+        TransactionRecord(amountCents: cents, kind: .expense, category: cat, date: date(y, m, d), title: title)
+    }
+    private func income(_ cents: Int, _ y: Int, _ m: Int, _ d: Int) -> TransactionRecord {
+        TransactionRecord(amountCents: cents, kind: .income, category: "Salary", date: date(y, m, d), title: "")
+    }
+    private let now = date(2026, 3, 10)
+
+    func testDailyAverageForTheCurrentMonthUsesOnlyDaysThatHaveHappened() {
+        let txs = [e(10_000, 2026, 3, 2), e(5_000, 2026, 3, 9), income(999_999, 2026, 3, 1)]
+        let a = Insights.dailyAverage(txs, month: MonthKey(year: 2026, month: 3), now: now, calendar: utc)!
+        XCTAssertEqual(a.days, 10); XCTAssertTrue(a.isPartialMonth); XCTAssertEqual(a.totalCents, 15_000); XCTAssertEqual(a.averageCents, 1_500)
+    }
+    func testDailyAverageForAFinishedMonthUsesTheWholeMonthAndFutureMonthsHaveNone() {
+        let a = Insights.dailyAverage([e(31_000, 2026, 1, 15)], month: MonthKey(year: 2026, month: 1), now: now, calendar: utc)!
+        XCTAssertEqual(a.days, 31); XCTAssertFalse(a.isPartialMonth); XCTAssertEqual(a.averageCents, 1_000)
+        XCTAssertNil(Insights.dailyAverage([], month: MonthKey(year: 2026, month: 4), now: now, calendar: utc))
+    }
+    func testComparisonMatchesEquivalentPeriodsNotAHalfMonthAgainstAWholeOne() {
+        let txs = [e(10_000, 2026, 3, 3, "Food"), e(4_000, 2026, 3, 9, "Fun"),                       // this month, days 1–10
+                   e(8_000, 2026, 2, 4, "Food"), e(1_000, 2026, 2, 8, "Fun"), e(50_000, 2026, 2, 20, "Rent")]   // last month; day 20 is outside the window
+        let c = Insights.monthToDateComparison(txs, now: now, calendar: utc)
+        XCTAssertEqual(c.days, 10); XCTAssertEqual(c.current, 14_000); XCTAssertEqual(c.previous, 9_000)
+        XCTAssertEqual(c.delta, 5_000); XCTAssertEqual(try XCTUnwrap(c.percent), 5.0 / 9.0, accuracy: 0.0001)
+        XCTAssertEqual(c.categories.map(\.category).sorted(), ["Food", "Fun"])
+        XCTAssertEqual(c.categories.first { $0.category == "Food" }?.delta, 2_000)
+    }
+    func testComparisonUsesTheShorterMonthsLengthOnTheThirty1st() {
+        let c = Insights.monthToDateComparison([e(100, 2026, 3, 30), e(100, 2026, 2, 27)], now: date(2026, 3, 31), calendar: utc)
+        XCTAssertEqual(c.days, 28, "February only has 28 days; both months are compared over their first 28")
+        XCTAssertEqual(c.current, 0); XCTAssertEqual(c.previous, 100)
+    }
+    func testNoPercentageWhenThereIsNothingToCompareAgainst() {
+        XCTAssertNil(Insights.monthToDateComparison([e(100, 2026, 3, 2)], now: now, calendar: utc).percent)
+    }
+    func testWeekdayPatternAveragesOverTheDaysThatExist() {
+        // Mondays: 2026-03-02 and 2026-03-09 within history that starts on Mar 2 (a Monday). Window ends Mar 10 (Tuesday).
+        let txs = [e(6_000, 2026, 3, 2), e(2_000, 2026, 3, 9), e(3_000, 2026, 3, 3)]
+        let p = Insights.weekdayPattern(txs, weeks: 8, now: now, calendar: utc)
+        XCTAssertEqual(p.count, 7)
+        let monday = try? XCTUnwrap(p.first { $0.weekday == 2 }), tuesday = try? XCTUnwrap(p.first { $0.weekday == 3 })
+        XCTAssertEqual(monday?.occurrences, 2); XCTAssertEqual(monday?.averageCents, 4_000, "(6,000 + 2,000) ÷ 2 Mondays")
+        XCTAssertEqual(tuesday?.occurrences, 2); XCTAssertEqual(tuesday?.averageCents, 1_500, "3,000 ÷ 2 Tuesdays: Mar 10 is a Tuesday with nothing spent")
+        XCTAssertEqual(p.first { $0.weekday == 1 }?.occurrences, 1, "history started Mar 2, so only one Sunday has happened (Mar 8)")
+    }
+    func testWeekdayPatternWithNoExpensesIsAllZero() {
+        XCTAssertTrue(Insights.weekdayPattern([income(100, 2026, 3, 1)], now: now, calendar: utc).allSatisfy { $0.averageCents == 0 })
+    }
+    func testCategoryTotalsByMonth() {
+        let months = [MonthKey(year: 2026, month: 1), MonthKey(year: 2026, month: 2), MonthKey(year: 2026, month: 3)]
+        let r = Insights.categoryTotals([e(100, 2026, 1, 5, "Food"), e(250, 2026, 1, 9, "Groceries"), e(999, 2026, 2, 1, "Fun"), e(70, 2026, 3, 1, "Food")],
+                                        categories: ["Food", "Groceries"], months: months, calendar: utc)
+        XCTAssertEqual(r.map(\.cents), [350, 0, 70])
+    }
+    func testLargestExpensesAreInRangeAndOrdered() {
+        let txs = [e(500, 2026, 3, 1), e(900, 2026, 3, 2), e(700, 2026, 3, 3), e(99_999, 2026, 2, 28), income(50_000, 2026, 3, 1)]
+        let top = Insights.largestExpenses(txs, from: date(2026, 3, 1, hour: 0), through: date(2026, 3, 31), limit: 2)
+        XCTAssertEqual(top.map(\.amountCents), [900, 700])
+    }
+    func testHabitChangesNeedBothWindowsOfHistory() {
+        XCTAssertNil(Insights.habitChanges([e(100, 2026, 1, 5)], now: now, calendar: utc), "only one month of history")
+        // now = Mar 2026: recent window = Dec, Jan, Feb; before = Sep, Oct, Nov
+        let txs = [e(1_000, 2025, 9, 5, "Food"), e(1_000, 2025, 10, 5, "Food"), e(1_000, 2025, 11, 5, "Food"),
+                   e(2_000, 2025, 12, 5, "Food"), e(2_000, 2026, 1, 5, "Food"), e(2_000, 2026, 2, 5, "Food"),
+                   e(300, 2025, 10, 9, "Fun"), e(900, 2026, 1, 9, "Rent"), e(555, 2026, 3, 1, "Food")]
+        let c = try? XCTUnwrap(Insights.habitChanges(txs, now: now, calendar: utc))
+        XCTAssertEqual(c?.first?.category, "Food"); XCTAssertEqual(c?.first?.delta, 3_000, "6,000 vs 3,000; March is not complete so it's left out")
+        XCTAssertEqual(c?.first { $0.category == "Fun" }?.delta, -300)
+        XCTAssertEqual(c?.first { $0.category == "Rent" }?.delta, 900)
+    }
+    func testScheduledPaymentsCountOnlyConfirmedScheduleTransactions() {
+        let a = e(1_599, 2026, 2, 5, "Subscriptions"); a.occurrenceKey = "x|2026-02-05"
+        let b = e(5_000, 2026, 2, 6, "Food")   // ordinary spending, not a subscription
+        let c = e(1_599, 2026, 3, 5, "Subscriptions"); c.occurrenceKey = "x|2026-03-05"
+        let r = Insights.scheduledPayments([a, b, c], months: [MonthKey(year: 2026, month: 2), MonthKey(year: 2026, month: 3)], calendar: utc)
+        XCTAssertEqual(r.map(\.cents), [1_599, 1_599])
+    }
+}

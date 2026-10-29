@@ -10,6 +10,11 @@ struct ToolsView: View {
                             detail: "Everything that repeats, what it costs, and what’s due. Nothing is deducted until you confirm.")
                 }
                 .buttonStyle(PressableStyle())
+                NavigationLink { InsightsView() } label: {
+                    ToolRow(symbol: "chart.bar.doc.horizontal", title: "Spending insights",
+                            detail: "Daily average, weekly pattern, biggest expenses and what’s changed, from your own records.")
+                }
+                .buttonStyle(PressableStyle())
                 NavigationLink { SafeToSpendView() } label: {
                     ToolRow(symbol: "shield.lefthalf.filled", title: "Safe to spend",
                             detail: "What you can spend without touching bills, savings or essentials.")
