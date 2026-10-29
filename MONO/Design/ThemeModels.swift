@@ -223,6 +223,13 @@ final class ThemeStore {
         persist()
     }
 
+    /// Re-reads the saved theme (after a backup restore replaced it).
+    func reload() {
+        if let data = defaults.data(forKey: Self.key), let s = try? JSONDecoder().decode(Saved.self, from: data) { saved = s } else { saved = Saved() }
+        saved.glass = min(max(saved.glass, 0), 1)
+        draft = nil
+    }
+
     func resetAll() {
         draft = nil
         saved = Saved()

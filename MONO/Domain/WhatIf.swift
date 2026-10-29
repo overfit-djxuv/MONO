@@ -129,6 +129,8 @@ final class WhatIfStore {
         scenarios = (defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([WhatIf.Scenario].self, from: $0) }) ?? []
     }
 
+    func reload() { scenarios = (defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([WhatIf.Scenario].self, from: $0) }) ?? [] }
+
     func upsert(_ s: WhatIf.Scenario) {
         if let i = scenarios.firstIndex(where: { $0.id == s.id }) { scenarios[i] = s }
         else if scenarios.count < Self.maxScenarios { scenarios.append(s) }

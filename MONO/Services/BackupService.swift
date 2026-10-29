@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 struct BackupFile: Codable, Equatable {
-    static let currentVersion = 4
+    static let currentVersion = 5
 
     var app = "MONO"
     var version = BackupFile.currentVersion
@@ -26,6 +26,12 @@ struct BackupFile: Codable, Equatable {
     var reportingCurrency: String? = nil
     /// Added in format 3.
     var reservedFunds: [ReservedDTO]? = nil
+    /// Added in format 5: your settings and custom themes (never security settings such as the Face ID lock).
+    var preferences: [String: PrefValue]? = nil
+    /// Added in format 5: receipts and (optionally) their photos.
+    var receipts: [ReceiptDTO]? = nil
+
+    struct ReceiptDTO: Codable, Equatable { var id: UUID }
 
     struct ReservedDTO: Codable, Equatable { var id: UUID; var name: String; var amountCents: Int; var isActive: Bool; var createdAt: Date }
 
@@ -268,7 +274,8 @@ enum BackupService {
     }
 
     /// Replaces all existing records. Rolls back completely on failure.
-    static func replaceAll(with f: BackupFile, in context: ModelContext) throws {
+    /// `applyPreferences: false` is used for test restores into a throwaway database, which must not touch your real settings.
+    static func replaceAll(with f: BackupFile, in context: ModelContext, applyPreferences: Bool = true) throws {
         do {
             try context.delete(model: TransactionRecord.self)
             try context.delete(model: MonthBudget.self)
@@ -359,11 +366,18 @@ enum BackupService {
             context.rollback()
             throw error
         }
+        guard applyPreferences else {
+            let scratch = UserDefaults(suiteName: "mono-dry-run")!
+            scratch.set(f.openingBalanceCents, forKey: "openingBalanceCents")
+            _ = try? AccountMigration.run(in: context, snapshotFirst: false, defaults: scratch)
+            return
+        }
         UserDefaults.standard.set(f.openingBalanceCents, forKey: "openingBalanceCents")
         UserDefaults.standard.set(f.currencySymbol, forKey: "currencySymbol")
         if let code = f.reportingCurrency { UserDefaults.standard.set(code, forKey: Money.reportingKey) }
         UserDefaults.standard.set(true, forKey: DefaultCategories.seededKey)
         UserDefaults.standard.set(true, forKey: DefaultCategories.essentialSeededKey)   // a restore brings its own flags
+        if let prefs = f.preferences { PreferenceBackup.restore(prefs) }
         // A format-1 file has no accounts: give its records a Main account holding its opening balance.
         _ = try? AccountMigration.run(in: context, snapshotFirst: false)
     }
