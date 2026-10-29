@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 enum DateRangeFilter: String, CaseIterable, Identifiable {
-    case all = "All time", thisMonth = "This month", lastMonth = "Last month", last3 = "Last 3 months", thisYear = "This year"
+    case all = "All time", thisMonth = "This month", lastMonth = "Last month", last3 = "Last 3 months", thisYear = "This year", custom = "Custom range"
     var id: String { rawValue }
 
     func contains(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> Bool {
@@ -13,6 +13,7 @@ enum DateRangeFilter: String, CaseIterable, Identifiable {
         case .lastMonth: return k == cur.adding(-1)
         case .last3: return k >= cur.adding(-2) && k <= cur
         case .thisYear: return k.year == cur.year && k <= cur
+        case .custom: return true   // bounds live with the screen that picked them
         }
     }
 }
@@ -32,7 +33,12 @@ struct TransactionsView: View {
     @State private var categoryFilter: String?
     @State private var accountFilter: UUID?
     @State private var tagFilter: String?
-    @State private var range: DateRangeFilter = .all
+    @State private var range: DateRangeFilter = .thisMonth
+    @State private var customFrom = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
+    @State private var customTo = Date.now
+    @State private var showCustom = false
+    @State private var detail: TransactionRecord?
+    @Query private var receipts: [Receipt]
     @State private var showAdd = false
     @State private var showCSV = false
     @State private var editing: TransactionRecord?
@@ -41,7 +47,7 @@ struct TransactionsView: View {
     private var directory: AccountDirectory { AccountDirectory(accounts) }
     private var allTags: [String] { Array(Set(txs.flatMap { Tags.list(from: $0.tags) })).sorted() }
     private var filtersActive: Bool {
-        kindFilter != nil || categoryFilter != nil || accountFilter != nil || tagFilter != nil || range != .all
+        kindFilter != nil || categoryFilter != nil || accountFilter != nil || tagFilter != nil || range != .thisMonth
     }
 
     private var filtered: [TransactionRecord] {
@@ -53,7 +59,7 @@ struct TransactionsView: View {
                 && (categoryFilter == nil || t.category == categoryFilter)
                 && (accountFilter == nil || from?.id == accountFilter || to?.id == accountFilter)
                 && (tagFilter == nil || Tags.list(from: t.tags).contains(tagFilter!))
-                && range.contains(t.date)
+                && (range == .custom ? (Calendar.current.startOfDay(for: customFrom)...Calendar.current.startOfDay(for: customTo).addingTimeInterval(86_399)).contains(t.date) : range.contains(t.date))
                 && (q.isEmpty || t.title.localizedCaseInsensitiveContains(q)
                     || t.category.localizedCaseInsensitiveContains(q)
                     || t.merchant.localizedCaseInsensitiveContains(q)
@@ -85,9 +91,9 @@ struct TransactionsView: View {
                     .frame(maxHeight: .infinity)
                 } else if filtered.isEmpty {
                     EmptyState(symbol: "magnifyingglass", title: "No matches",
-                               message: "Nothing fits the current search or filters.",
-                               actionTitle: filtersActive ? "Clear filters" : nil) {
-                        kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; range = .all
+                               message: range == .all || filtersActive ? "Nothing fits the current search or filters." : "Nothing recorded in \(range.rawValue.lowercased()).",
+                               actionTitle: "Show all time") {
+                        clearFilters(); range = .all; search = ""
                     }
                     .frame(maxHeight: .infinity)
                 } else {
@@ -95,15 +101,14 @@ struct TransactionsView: View {
                 }
             }
             .monoScreen()
+            .navigationDestination(item: $detail) { t in
+                TransactionDetailView(tx: t, directory: directory, symbol: categories.symbol(for: t.category),
+                                      isDuplicate: duplicateIDs.contains(t.id), receipt: receipts.first { $0.transactionID == t.id })
+            }
             .navigationTitle("Transactions")
             .searchable(text: $search, prompt: "Search transactions")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { filterMenu }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showCSV = true } label: { Image(systemName: "square.and.arrow.down") }
-                        .accessibilityLabel("Import transactions from CSV")
-                        .accessibilityIdentifier("importCSV")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showAdd = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Add transaction")
@@ -113,6 +118,7 @@ struct TransactionsView: View {
             .sheet(isPresented: $showAdd) { TransactionForm(editing: nil) }
             .sheet(item: $editing) { TransactionForm(editing: $0) }
             .csvImport(isPresented: $showCSV)
+            .sheet(isPresented: $showCustom) { customRangeSheet }
             .confirmationDialog("Delete this transaction?", isPresented: Binding(get: { pendingDelete != nil },
                                                                                  set: { if !$0 { pendingDelete = nil } }),
                                 titleVisibility: .visible, presenting: pendingDelete) { t in
@@ -126,15 +132,33 @@ struct TransactionsView: View {
         }
     }
 
+    /// Records that look like the same purchase entered twice: same type, amount, day, account and name.
+    private var duplicateIDs: Set<UUID> {
+        let cal = Calendar.current
+        let groups = Dictionary(grouping: txs.filter { $0.kind != .transfer }) { t in
+            "\(t.kindRaw)|\(t.amountCents)|\(cal.startOfDay(for: t.date).timeIntervalSince1970)|\(t.accountID?.uuidString ?? "")|\((t.merchant.isEmpty ? t.title : t.merchant).lowercased())"
+        }
+        return Set(groups.values.filter { $0.count > 1 }.flatMap { $0.map(\.id) })
+    }
+
+    private func clearFilters() { kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; range = .thisMonth }
+
     private var list: some View {
-        List {
-            summaryRow
-                .listRowBackground(Color.clear).listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 6, leading: 6, bottom: 10, trailing: 6))
+        let dupes = duplicateIDs
+        return List {
+            VStack(alignment: .leading, spacing: 12) {
+                periodPicker
+                summaryRow
+                activeFilterChips
+            }
+            .listRowBackground(Color.clear).listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 8, trailing: 4))
             ForEach(grouped, id: \.day) { group in
                 Section {
                     ForEach(group.items) { t in
-                        Button { editing = t } label: { TransactionRow(tx: t, symbol: categories.symbol(for: t.category), directory: directory) }
+                        Button { detail = t } label: {
+                            TransactionRow(tx: t, symbol: categories.symbol(for: t.category), directory: directory, flag: dupes.contains(t.id) ? "Possible duplicate" : nil)
+                        }
                             .buttonStyle(PressableStyle())
                             .listRowBackground(GlassRowBackground())
                             .listRowSeparatorTint(Theme.line)
@@ -147,16 +171,88 @@ struct TransactionsView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) { pendingDelete = t } label: { Label("Delete", systemImage: "trash") }
+                                Button { editing = t } label: { Label("Edit", systemImage: "pencil") }.tint(Theme.inkSecondary)
                             }
                     }
                 } header: {
-                    Text(group.day.dayTitle).font(.footnote.weight(.medium)).foregroundStyle(Theme.inkSecondary)
-                        .textCase(nil)
+                    HStack {
+                        Text(group.day.dayTitle)
+                        Spacer()
+                        Text(dayTotal(group.items)).font(.figure(12)).foregroundStyle(Theme.inkSecondary)
+                    }
+                    .font(.footnote.weight(.medium)).foregroundStyle(Theme.inkSecondary).textCase(nil)
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .environment(\.defaultMinListRowHeight, 52)
+        .listSectionSpacing(10)
         .scrollContentBackground(.hidden)
+    }
+
+    /// Net of the day in the reporting currency; a day with only transfers says so rather than showing zero.
+    private func dayTotal(_ items: [TransactionRecord]) -> String {
+        let b = Books(accounts: accounts, rates: rates, transactions: items, entries: [])
+        let inc = b.reported.filter { $0.kind == .income }.reduce(0) { $0 + $1.amountCents }
+        let exp = b.reported.filter { $0.kind == .expense }.reduce(0) { $0 + $1.amountCents }
+        if inc == 0 && exp == 0 { return items.allSatisfy { $0.kind == .transfer } ? "Transfers only" : "" }
+        return Money.format(inc - exp, signed: true)
+    }
+
+    private var periodPicker: some View {
+        HStack(spacing: 0) {
+            ForEach([DateRangeFilter.thisMonth, .lastMonth, .all], id: \.self) { r in
+                Button { withAnimation(Theme.easeOut(0.18)) { range = r } } label: {
+                    Text(r == .all ? "All time" : r.rawValue).font(.subheadline.weight(range == r ? .semibold : .regular))
+                        .foregroundStyle(range == r ? Theme.ink : Theme.inkSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .background { if range == r { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface) } }
+                }.buttonStyle(.plain)
+            }
+            Button { showCustom = true } label: {
+                Text(range == .custom ? "\(customFrom.formatted(.dateTime.day().month(.abbreviated))) – \(customTo.formatted(.dateTime.day().month(.abbreviated)))" : "Custom")
+                    .font(.subheadline.weight(range == .custom ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundStyle(range == .custom ? Theme.ink : Theme.inkSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .background { if range == .custom { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.surface) } }
+            }.buttonStyle(.plain)
+        }
+        .padding(3).background(Theme.line.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private var activeFilterChips: some View {
+        let chips: [(String, () -> Void)] = [
+            kindFilter.map { k in (k.label, { kindFilter = nil }) },
+            categoryFilter.map { c in (c, { categoryFilter = nil }) },
+            accountFilter.flatMap { id in accounts.first { $0.id == id } }.map { a in (a.name, { accountFilter = nil }) },
+            tagFilter.map { t in ("#\(t)", { tagFilter = nil }) },
+        ].compactMap { $0 }
+        if !chips.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { _, c in
+                        Button { c.1() } label: {
+                            HStack(spacing: 6) { Text(c.0); Image(systemName: "xmark").font(.caption2.weight(.bold)) }
+                                .font(.footnote.weight(.medium)).foregroundStyle(Theme.accent)
+                                .padding(.horizontal, 12).frame(minHeight: 32).background(Theme.accentSoft, in: Capsule())
+                        }.buttonStyle(PressableStyle()).accessibilityLabel("Remove filter \(c.0)")
+                    }
+                }
+            }
+        }
+    }
+
+    private var customRangeSheet: some View {
+        NavigationStack {
+            Form {
+                DatePicker("From", selection: $customFrom, in: ...customTo, displayedComponents: .date)
+                DatePicker("To", selection: $customTo, in: customFrom..., displayedComponents: .date)
+            }
+            .navigationTitle("Custom range").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Show") { range = .custom; showCustom = false } } }
+        }
+        .presentationDetents([.height(280)])
     }
 
     private var summaryRow: some View {
@@ -164,19 +260,18 @@ struct TransactionsView: View {
         let b = Books(accounts: accounts, rates: rates, transactions: filtered, entries: [])
         let income = b.reported.filter { $0.kind == .income }.reduce(0) { $0 + $1.amountCents }
         let expense = b.reported.filter { $0.kind == .expense }.reduce(0) { $0 + $1.amountCents }
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Metric(label: "Income", value: Money.format(income), tint: Theme.income)
-                Metric(label: "Expenses", value: Money.format(expense))
-                Metric(label: "\(filtered.count) \(filtered.count == 1 ? "item" : "items")", value: Money.format(income - expense, signed: true),
-                       tint: Theme.inkSecondary)
-            }
+        return VStack(alignment: .leading, spacing: 6) {
+            StatStrip(items: [
+                .init(label: "Income", value: Money.format(income), tint: Theme.income),
+                .init(label: "Spent", value: Money.format(expense)),
+                .init(label: "Net", value: Money.format(income - expense, signed: true))
+            ])
             if b.skipped > 0 {
                 Text("\(b.skipped) \(b.skipped == 1 ? "record is" : "records are") in a currency with no exchange rate, so \(b.skipped == 1 ? "it isn’t" : "they aren’t") in these totals.")
                     .font(.caption).foregroundStyle(Theme.warning)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 
     private var filterMenu: some View {
@@ -186,7 +281,7 @@ struct TransactionsView: View {
                 ForEach(TxKind.allCases) { Text($0.label).tag(TxKind?.some($0)) }
             }
             Picker("Period", selection: $range) {
-                ForEach(DateRangeFilter.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(DateRangeFilter.allCases.filter { $0 != .custom }) { Text($0.rawValue).tag($0) }
             }
             Picker("Category", selection: $categoryFilter) {
                 Text("All categories").tag(String?.none)
@@ -205,12 +300,12 @@ struct TransactionsView: View {
                 }
             }
             if filtersActive {
-                Button("Clear filters", role: .destructive) { kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; range = .all }
+                Button("Clear filters", role: .destructive) { clearFilters() }
             }
         } label: {
-            Image(systemName: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            Image(systemName: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "ellipsis.circle")
         }
-        .accessibilityLabel("Filter")
+        .accessibilityLabel("Filters and import")
     }
 }
 
@@ -218,6 +313,7 @@ struct TransactionRow: View {
     let tx: TransactionRecord
     let symbol: String
     var directory: AccountDirectory? = nil
+    var flag: String? = nil
 
     private var from: Account? { directory?.account(tx.accountID) }
     private var to: Account? { tx.toAccountID.flatMap { directory?.byID[$0] } }
@@ -251,7 +347,7 @@ struct TransactionRow: View {
                           tint: tx.kind == .income ? Theme.income : Theme.inkSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(heading).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
-                Text(subtitle).font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
+                Text(flag ?? subtitle).font(.caption).foregroundStyle(flag == nil ? Theme.inkSecondary : Theme.warning).lineLimit(1)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
@@ -264,7 +360,7 @@ struct TransactionRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 0)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

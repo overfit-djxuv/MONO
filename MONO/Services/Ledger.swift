@@ -73,6 +73,8 @@ enum Ledger {
                        in context: ModelContext) throws {
         for i in items where i.expenseID == tx.id { i.expenseID = nil }
         for p in planned where p.paidTransactionID == tx.id { p.paidTransactionID = nil; p.isPaid = false }
+        // A receipt outlives the transaction it was attached to; it just becomes unlinked.
+        for r in (try? context.fetch(FetchDescriptor<Receipt>())) ?? [] where r.transactionID == tx.id { r.transactionID = nil }
         context.delete(tx)
         try context.save()
     }
