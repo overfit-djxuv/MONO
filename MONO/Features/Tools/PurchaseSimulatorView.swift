@@ -19,16 +19,22 @@ struct PurchaseSimulatorView: View {
     @AppStorage("hourlyIncomeCents") private var hourlyCents = 0
 
     @State private var item = ""
-    @State private var priceText: String = {
-        #if DEBUG
-        if let i = CommandLine.arguments.firstIndex(of: "-MONOSimPrice"), i + 1 < CommandLine.arguments.count { return CommandLine.arguments[i + 1] }
-        #endif
-        return ""
-    }()
+    @State private var priceText = ""
     @State private var category = ""
     @State private var compare = false
     @State private var altText = ""
     @State private var hourlyText = ""
+
+    /// Opens with an item already filled in (from a shopping list). Nothing is recorded either way.
+    init(item: String = "", priceCents: Int? = nil, category: String = "") {
+        _item = State(initialValue: item)
+        var price = priceCents.map { Money.editable($0) } ?? ""
+        #if DEBUG
+        if price.isEmpty, let i = CommandLine.arguments.firstIndex(of: "-MONOSimPrice"), i + 1 < CommandLine.arguments.count { price = CommandLine.arguments[i + 1] }
+        #endif
+        _priceText = State(initialValue: price)
+        _category = State(initialValue: category)
+    }
 
     private var price: Int? { Money.parse(priceText).flatMap { $0 > 0 ? $0 : nil } }
     private var altPrice: Int? { compare ? Money.parse(altText).flatMap { $0 > 0 ? $0 : nil } : nil }

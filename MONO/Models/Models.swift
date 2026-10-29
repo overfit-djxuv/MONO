@@ -33,9 +33,14 @@ enum Priority: Int, Codable, CaseIterable, Identifiable {
 }
 
 enum ListKind: String, Codable, CaseIterable, Identifiable {
-    case grocery, wishlist
+    case grocery, wishlist, personal, electronics, trip
     var id: String { rawValue }
-    var label: String { self == .grocery ? "Groceries" : "Wishlist" }
+    var label: String {
+        switch self { case .grocery: "Groceries"; case .wishlist: "Wishlist"; case .personal: "Personal"; case .electronics: "Electronics"; case .trip: "Trip essentials" }
+    }
+    var symbol: String {
+        switch self { case .grocery: "cart"; case .wishlist: "gift"; case .personal: "person"; case .electronics: "headphones"; case .trip: "suitcase" }
+    }
 }
 
 /// How often a goal's planned contribution is made.

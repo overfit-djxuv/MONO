@@ -18,6 +18,10 @@ struct ShoppingView: View {
     @State private var sheet: ItemTarget?
     @State private var pendingDelete: ShoppingItem?
     @State private var confirmClear = false
+    @State private var quick = ""
+    @State private var simulate: ShoppingItem?
+    @State private var linking: ShoppingItem?
+    @FocusState private var quickFocused: Bool
 
     private var items: [ShoppingItem] {
         allItems.filter { $0.listKind == list }.sorted {
@@ -31,7 +35,7 @@ struct ShoppingView: View {
     /// What the planned purchases are measured against.
     private var available: (label: String, cents: Int)? {
         let month = MonthKey(.now)
-        if list == .wishlist {
+        if list != .grocery {
             let books = Books(accounts: accounts, rates: rates, transactions: txs, entries: entries, legacyOpening: opening)
             return ("Available cash", books.overview.total)
         }
@@ -47,20 +51,17 @@ struct ShoppingView: View {
         NavigationStack {
             List {
                 Section {
-                    Picker("List", selection: $list) {
-                        ForEach(ListKind.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
-                    summaryBlock
-                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    listChips.listRowBackground(Color.clear).listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    summaryBlock.listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+                    quickAdd.listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
                 }
                 if items.isEmpty {
-                    EmptyState(symbol: list == .grocery ? "cart" : "gift",
-                               title: list == .grocery ? "No groceries listed" : "Wishlist is empty",
-                               message: list == .grocery ? "Add what you need this week with estimated prices to see the total before you shop."
-                                                          : "Keep longer-term purchases here, separate from everyday groceries.",
-                               actionTitle: "Add item") { sheet = ItemTarget(item: nil) }
+                    EmptyState(symbol: list.symbol, title: "\(list.label) is empty",
+                               message: list == .grocery ? "Type an item above with a quantity and price, like “milk 2 4.50”, to see the total before you shop."
+                                                          : "Keep these separate from everyday groceries, with estimated prices.",
+                               actionTitle: "Add with details") { sheet = ItemTarget(item: nil) }
                         .listRowBackground(Color.clear).listRowSeparator(.hidden)
                 } else {
                     Section {
@@ -69,13 +70,21 @@ struct ShoppingView: View {
                                 .contentShape(Rectangle())
                                 .onTapGesture { sheet = ItemTarget(item: item) }
                                 .listRowBackground(GlassRowBackground()).listRowSeparatorTint(Theme.line)
+                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                    if item.estimatedCents > 0 && !item.isPurchased {
+                                        Button { simulate = item } label: { Label("Simulate", systemImage: "wand.and.stars") }.tint(Theme.inkSecondary)
+                                    }
+                                }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button(role: .destructive) { pendingDelete = item } label: { Label("Delete", systemImage: "trash") }
                                     if item.isPurchased && Ledger.canRecord(item, existing: txs) {
                                         Button { record(item) } label: { Label("Record", systemImage: "arrow.down.doc") }.tint(Theme.accent)
+                                        Button { linking = item } label: { Label("Link", systemImage: "link") }.tint(Theme.inkSecondary)
                                     }
                                 }
                         }
+                    } header: {
+                        Text("\(summary.toBuyCount) to buy · \(summary.purchasedCount) bought").textCase(nil).font(.footnote.weight(.medium))
                     }
                     if !unrecorded.isEmpty || summary.purchasedCount > 0 {
                         Section {
@@ -86,9 +95,11 @@ struct ShoppingView: View {
                             }
                             if summary.purchasedCount > 0 {
                                 Button(role: .destructive) { confirmClear = true } label: {
-                                    Label("Remove purchased items", systemImage: "trash")
+                                    Label("Clear bought items", systemImage: "trash")
                                 }
                             }
+                        } footer: {
+                            Text("Marking an item bought changes nothing in your money. Only Record (or Link) connects it to a real expense.")
                         }
                         .listRowBackground(GlassRowBackground())
                         .font(.subheadline)
@@ -100,10 +111,16 @@ struct ShoppingView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { sheet = ItemTarget(item: nil) } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("Add item")
+                        .accessibilityLabel("Add item with details")
                 }
             }
             .sheet(item: $sheet) { ItemSheet(editing: $0.item, defaultList: list) }
+            .sheet(item: $simulate) { item in
+                NavigationStack { PurchaseSimulatorView(item: item.name, priceCents: item.estimatedCents * item.quantity, category: item.category)
+                    .navigationTitle("Simulate").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { simulate = nil } } } }
+            }
+            .sheet(item: $linking) { item in LinkExpenseSheet(item: item) }
             .confirmationDialog("Delete this item?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
                                 titleVisibility: .visible, presenting: pendingDelete) { item in
                 Button("Delete", role: .destructive) {
@@ -112,9 +129,9 @@ struct ShoppingView: View {
             } message: { item in
                 Text(item.expenseID != nil ? "The expense already recorded for “\(item.name)” stays in your transactions." : item.name)
             }
-            .confirmationDialog("Remove \(summary.purchasedCount) purchased \(summary.purchasedCount == 1 ? "item" : "items")?",
+            .confirmationDialog("Clear \(summary.purchasedCount) bought \(summary.purchasedCount == 1 ? "item" : "items")?",
                                 isPresented: $confirmClear, titleVisibility: .visible) {
-                Button("Remove", role: .destructive) {
+                Button("Clear", role: .destructive) {
                     items.filter(\.isPurchased).forEach { context.delete($0) }
                     try? context.save()
                 }
@@ -125,22 +142,59 @@ struct ShoppingView: View {
         }
     }
 
+    // MARK: List chips and quick add
+
+    private var listChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(ListKind.allCases) { k in
+                    let on = k == list
+                    Button { withAnimation(Theme.easeOut(0.18)) { list = k } } label: {
+                        Text(k.label).font(.subheadline.weight(on ? .semibold : .regular))
+                            .foregroundStyle(on ? Theme.accent : Theme.ink)
+                            .padding(.horizontal, 14).frame(minHeight: 40)
+                            .background(on ? Theme.accentSoft : Color.clear, in: Capsule())
+                            .overlay(Capsule().stroke(on ? Theme.accent.opacity(0.5) : Theme.line, lineWidth: 1))
+                    }.buttonStyle(PressableStyle())
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private var quickAdd: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "plus").foregroundStyle(Theme.inkSecondary)
+            TextField("Add an item, e.g. milk 2 4.50", text: $quick)
+                .focused($quickFocused).submitLabel(.done).onSubmit(addQuick)
+                .accessibilityIdentifier("quickAddItem")
+            if !quick.isEmpty { Button("Add", action: addQuick).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent) }
+        }
+        .padding(.horizontal, 14).frame(minHeight: 48).surface(padding: 0)
+    }
+
+    private func addQuick() {
+        guard let p = ShoppingQuickAdd.parse(quick) else { return }
+        let cats = categories.filter { $0.kind == .expense }
+        let category = cats.contains { $0.name == (list == .grocery ? "Groceries" : "Shopping") } ? (list == .grocery ? "Groceries" : "Shopping") : (cats.first?.name ?? "Groceries")
+        context.insert(ShoppingItem(name: p.name, quantity: p.quantity, estimatedCents: p.priceCents, category: category, priority: .medium, listKind: list))
+        do { try context.save(); quick = ""; Haptics.tap() } catch { errors.report(error, doing: "Couldn’t add item") }
+    }
+
     // MARK: Summary
 
     private var summaryBlock: some View {
         let after = available.map { $0.cents - summary.toBuy }
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 16) {
-                Metric(label: "To buy · \(summary.toBuyCount)", value: Money.format(summary.toBuy))
-                Metric(label: "Bought · \(summary.purchasedCount)", value: Money.format(summary.purchased), tint: Theme.accent)
-            }
+            StatStrip(items: [
+                .init(label: "Planned", value: Money.format(summary.toBuy)),
+                .init(label: "Bought", value: Money.format(summary.purchased), tint: Theme.accent),
+                .init(label: after.map { $0 >= 0 ? "Left after plan" : "Over by" } ?? "Budget", value: after.map { Money.format(abs($0)) } ?? "Not set",
+                      tint: (after ?? 0) < 0 ? Theme.danger : Theme.ink)
+            ])
             if let available, let after {
-                Hairline()
-                HStack(alignment: .top, spacing: 16) {
-                    Metric(label: available.label, value: Money.format(available.cents))
-                    Metric(label: after >= 0 ? "Left after plan" : "Over by", value: Money.format(abs(after)),
-                           tint: after >= 0 ? Theme.ink : Theme.danger)
-                }
+                Text("Measured against \(available.label.lowercased()): \(Money.format(available.cents)).").font(.caption).foregroundStyle(Theme.inkSecondary)
                 if after < 0 {
                     Callout(text: "The items still to buy cost \(Money.format(-after)) more than your \(available.label.lowercased()).", tone: .danger)
                 } else if available.cents > 0 && Double(summary.toBuy) / Double(available.cents) >= FinanceEngine.warningThreshold {
@@ -150,8 +204,9 @@ struct ShoppingView: View {
                 Text("Set a Groceries limit or monthly total in Budget to compare this list with what you can spend.")
                     .font(.caption).foregroundStyle(Theme.inkTertiary)
             }
+            Text("Planned prices are estimates and don’t change your balances or spending.").font(.caption).foregroundStyle(Theme.inkTertiary)
         }
-        .padding(.vertical, 4)
+        .surface()
     }
 
     // MARK: Actions
@@ -198,9 +253,10 @@ struct ItemRow: View {
                     }
                 }
                 HStack(spacing: 6) {
-                    Text("\(item.quantity) × \(Money.format(item.actualCents ?? item.estimatedCents))")
+                    Text("\(item.quantity) × \(Money.format(item.actualCents ?? item.estimatedCents))" + (item.isPurchased && item.actualCents != nil && item.actualCents != item.estimatedCents ? " · est. \(Money.format(item.estimatedCents))" : ""))
                         .font(.caption).foregroundStyle(Theme.inkSecondary)
-                    if recorded { StatusChip(text: "Recorded", tint: Theme.accent) }
+                    if recorded { StatusChip(text: "Linked to expense", tint: Theme.accent) }
+                    else if item.isPurchased { StatusChip(text: "Not recorded", tint: Theme.warning) }
                 }
             }
             Spacer(minLength: 8)
@@ -325,5 +381,52 @@ struct ItemSheet: View {
         guard save() != nil else { return }
         do { try Ledger.recordPurchase(item, existing: txs, in: context) }
         catch { errors.report(error, doing: "Couldn’t record expense") }
+    }
+}
+
+/// Connect a bought item to an expense you already entered, so recording it again can't create a second one.
+struct LinkExpenseSheet: View {
+    let item: ShoppingItem
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Environment(ErrorCenter.self) private var errors
+    @Query(sort: \TransactionRecord.date, order: .reverse) private var txs: [TransactionRecord]
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+
+    private var candidates: [TransactionRecord] {
+        let total = item.effectiveTotal
+        let taken = Set(((try? context.fetch(FetchDescriptor<ShoppingItem>())) ?? []).compactMap(\.expenseID))
+        return txs.filter { $0.kind == .expense && !taken.contains($0.id) && $0.sourceID == nil }
+            .sorted { ($0.amountCents == total ? 0 : 1, -$0.date.timeIntervalSince1970) < ($1.amountCents == total ? 0 : 1, -$1.date.timeIntervalSince1970) }
+            .prefix(15).map { $0 }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(candidates) { t in
+                        Button {
+                            item.expenseID = t.id
+                            do { try context.save(); Haptics.success(); dismiss() } catch { errors.report(error, doing: "Couldn’t link") }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(t.merchant.isEmpty ? (t.title.isEmpty ? t.category : t.title) : t.merchant).foregroundStyle(Theme.ink)
+                                    Text(t.date.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(Theme.inkSecondary)
+                                }
+                                Spacer()
+                                Text(Money.format(t.amountCents, currency: AccountDirectory(accounts).currency(of: t)))
+                                    .font(.figure(15)).foregroundStyle(t.amountCents == item.effectiveTotal ? Theme.accent : Theme.ink)
+                            }
+                        }
+                    }
+                } header: { Text("Expenses worth \(Money.format(item.effectiveTotal)) first") }
+                footer: { Text("Linking doesn’t change the expense. It only marks “\(item.name)” as already recorded.") }
+            }
+            .scrollContentBackground(.hidden).monoScreen()
+            .navigationTitle("Link to expense").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
     }
 }

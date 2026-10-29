@@ -40,7 +40,7 @@ final class MONOUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Test lunch"].waitForExistence(timeout: 5), "new transaction is listed")
 
         // Dashboard recalculates immediately: opening balance 0 − 12.50
-        app.tabBars.buttons["Overview"].tap()
+        app.tabBars.buttons["Dashboard"].tap()
         let cash = app.staticTexts["availableCash"]
         XCTAssertTrue(cash.waitForExistence(timeout: 5))
         XCTAssertEqual(cash.label, "−RM 12.50")
@@ -50,7 +50,7 @@ final class MONOUITests: XCTestCase {
         app = launch(reset: false)
         app.tabBars.buttons["Transactions"].tap()
         XCTAssertTrue(app.staticTexts["Test lunch"].waitForExistence(timeout: 5), "data persisted across restart")
-        app.tabBars.buttons["Overview"].tap()
+        app.tabBars.buttons["Dashboard"].tap()
         XCTAssertEqual(app.staticTexts["availableCash"].label, "−RM 12.50")
     }
 
@@ -88,7 +88,7 @@ final class MONOUITests: XCTestCase {
         app.buttons["saveMove"].tap()
 
         // Cash drops by 100 (opening balance is 0), and nothing shows up as an expense.
-        app.tabBars.buttons["Overview"].tap()
+        app.tabBars.buttons["Dashboard"].tap()
         XCTAssertEqual(app.staticTexts["availableCash"].label, "−RM 100.00")
         app.tabBars.buttons["Transactions"].tap()
         XCTAssertTrue(app.staticTexts["No transactions yet"].waitForExistence(timeout: 5), "goal money is not an expense")

@@ -53,12 +53,14 @@ final class ScreenshotTour: XCTestCase {
         tap(app.buttons["Close"])
         app.navigationBars.buttons.firstMatch.tap()
 
-        tap(app.tabBars.buttons["Overview"])
+        tap(app.tabBars.buttons["Dashboard"])
+        tap(app.buttons["dashboardMore"])
         tap(app.buttons["Analytics"].firstMatch)
         shot("analytics-1")
         for i in 2...5 { app.swipeUp(); shot("analytics-\(i)") }
         app.navigationBars.buttons.firstMatch.tap()
 
-        tap(app.buttons["Settings"]); shot("settings")
+        tap(app.buttons["dashboardMore"])
+        tap(app.buttons["Settings"].firstMatch); shot("settings")
     }
 }
