@@ -119,7 +119,7 @@ extension PurchaseSimulator {
                                                   limits: limits, transactions: books.reported, today: now, calendar: calendar)
         var catBudgets: [String: (limit: Int, spent: Int)] = [:]
         for l in summary.lines { catBudgets[l.category] = (l.limit, l.spent) }
-        let paces: [GoalPace] = goals.compactMap { g in
+        let paces: [GoalPace] = goals.filter(\.isOngoing).compactMap { g in
             let plan = SavingsPlanner.plan(for: g, costs: costs, entries: entries, today: now, calendar: calendar)
             guard plan.remaining > 0, let remaining = books.converter.convert(plan.remaining, from: g.currency) else { return nil }
             return GoalPace(name: g.name, priority: g.priorityRaw, monthlyPace: monthlyPace(of: g, books: books), remaining: remaining,

@@ -27,7 +27,7 @@ struct WhatIfLabView: View {
 
     private var baseline: WhatIf.Baseline {
         let b = books
-        let lines = goals.compactMap { g -> WhatIf.GoalLine? in
+        let lines = goals.filter(\.isOngoing).compactMap { g -> WhatIf.GoalLine? in
             let plan = SavingsPlanner.plan(for: g, costs: costs, entries: entries)
             guard plan.remaining > 0, let remaining = b.converter.convert(plan.remaining, from: g.currency) else { return nil }
             return WhatIf.GoalLine(name: g.name, remaining: remaining, monthlyPace: PurchaseSimulator.monthlyPace(of: g, books: b))

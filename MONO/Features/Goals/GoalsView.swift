@@ -35,8 +35,10 @@ struct GoalsView: View {
     private func ordered(_ list: [SavingsGoal]) -> [SavingsGoal] {
         list.sorted { ($0.priorityRaw, $1.deadline ?? .distantFuture) > ($1.priorityRaw, $0.deadline ?? .distantFuture) }
     }
-    private var trips: [SavingsGoal] { ordered(goals.filter { $0.kind == .trip }) }
-    private var others: [SavingsGoal] { ordered(goals.filter { $0.kind == .general }) }
+    private var trips: [SavingsGoal] { ordered(goals.filter { $0.isOngoing && $0.kind == .trip }) }
+    private var others: [SavingsGoal] { ordered(goals.filter { $0.isOngoing && $0.kind == .general }) }
+    private var finished: [SavingsGoal] { goals.filter { !$0.isOngoing }.sorted { ($0.completedAt ?? $0.createdAt) > ($1.completedAt ?? $1.createdAt) } }
+    @State private var showFinished = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -52,6 +54,7 @@ struct GoalsView: View {
                         header.entrance(0)
                         if !trips.isEmpty { section("Trips", trips).entrance(1) }
                         if !others.isEmpty { section("Savings goals", others).entrance(2) }
+                        if !finished.isEmpty { finishedSection }
                     }
                 }
                 .padding(.horizontal, Theme.gutter).padding(.bottom, 32)
@@ -74,7 +77,7 @@ struct GoalsView: View {
 
     private var header: some View {
         let saved = Books(accounts: accounts, rates: rates, transactions: [], entries: []).savedTotal(goals: goals, entries: entries)
-        let active = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }.count
+        let active = goals.filter(\.isOngoing).filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }.count
         return VStack(alignment: .leading, spacing: 4) {
             Text("Set aside across \(active) \(active == 1 ? "goal" : "goals")").font(.footnote).foregroundStyle(Theme.inkSecondary)
             Text(Money.format(saved.total)).font(.figure(34, weight: .semibold)).foregroundStyle(Theme.ink)
@@ -84,6 +87,29 @@ struct GoalsView: View {
                 Text("\(saved.unconverted.joined(separator: ", ")) isn’t included: no exchange rate yet.").font(.caption).foregroundStyle(Theme.warning)
             }
         }
+    }
+
+    private var finishedSection: some View {
+        DisclosureGroup(isExpanded: $showFinished) {
+            VStack(spacing: 0) {
+                ForEach(Array(finished.enumerated()), id: \.element.id) { i, g in
+                    NavigationLink(value: g) {
+                        HStack(spacing: 12) {
+                            CategoryGlyph(symbol: g.kind == .trip ? "airplane" : g.symbol, tint: Theme.inkSecondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(g.name).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
+                                Text(g.completedAt.map { "Completed \($0.short)" } ?? "Archived").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.inkTertiary)
+                        }
+                        .padding(.vertical, 10).contentShape(Rectangle())
+                    }.buttonStyle(PressableStyle())
+                    if i < finished.count - 1 { Hairline() }
+                }
+            }.padding(.top, 6)
+        } label: { Text("Completed and archived · \(finished.count)").font(.subheadline.weight(.medium)).foregroundStyle(Theme.ink) }
+        .tint(Theme.inkSecondary).surface()
     }
 
     private func section(_ title: String, _ list: [SavingsGoal]) -> some View {

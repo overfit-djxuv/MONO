@@ -3,13 +3,11 @@ import SwiftUI
 /// Software release notes, bundled with the app so they work offline. (Backups of your data live in Backup & recovery.)
 struct VersionHistoryView: View {
     @State private var expanded: Set<String> = [VersionHistory.current]
-    @State private var showRollback = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 currentCard
-                rollbackCard
                 SectionHeader(title: "Timeline").padding(.top, 4)
                 ForEach(Array(VersionHistory.releases.enumerated()), id: \.element.id) { i, r in
                     releaseCard(r, isLast: i == VersionHistory.releases.count - 1).entrance(i)
@@ -30,17 +28,6 @@ struct VersionHistoryView: View {
                 .font(.subheadline).foregroundStyle(Theme.inkSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading).glass(padding: 18)
-    }
-
-    private var rollbackCard: some View {
-        DisclosureGroup(isExpanded: $showRollback) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("MONO can’t safely go back to an earlier version from inside the app, so there is no rollback button.")
-                Text("iOS only lets an app replace itself with a newer build, and an older build may not understand data saved by a newer one. Forcing it could damage your records.")
-                Text("If you ever need an older version, make a backup in Backup & recovery first and save a copy to Files. Every backup records the app version that made it, and newer MONO versions can open older backups.")
-            }.font(.footnote).foregroundStyle(Theme.inkSecondary).padding(.top, 6)
-        } label: { Label("Why there’s no rollback", systemImage: "arrow.uturn.backward.circle").font(.subheadline.weight(.medium)).foregroundStyle(Theme.ink) }
-        .tint(Theme.inkSecondary).glass(padding: 16)
     }
 
     private func releaseCard(_ r: Release, isLast: Bool) -> some View {

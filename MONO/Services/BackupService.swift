@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 struct BackupFile: Codable, Equatable {
-    static let currentVersion = 5
+    static let currentVersion = 6
 
     var app = "MONO"
     var version = BackupFile.currentVersion
@@ -77,6 +77,8 @@ struct BackupFile: Codable, Equatable {
         var plannedMonthlyCents: Int; var contributionDay: Int; var createdAt: Date
         var details: String? = nil; var priority: Int? = nil; var currencyCode: String? = nil
         var frequency: String? = nil; var startDate: Date? = nil
+        /// Added in format 6.
+        var completedAt: Date? = nil; var isArchived: Bool? = nil
     }
     struct GoalEntryDTO: Codable, Equatable {
         var id: UUID; var goalID: UUID; var amountCents: Int; var date: Date; var note: String; var affectsCash: Bool
@@ -138,7 +140,7 @@ enum BackupService {
                          deadline: $0.deadline, destination: $0.destination, bufferCents: $0.bufferCents,
                          plannedMonthlyCents: $0.plannedMonthlyCents, contributionDay: $0.contributionDay,
                          createdAt: $0.createdAt, details: $0.details, priority: $0.priorityRaw, currencyCode: $0.currencyCode,
-                         frequency: $0.frequencyRaw, startDate: $0.startDate) }
+                         frequency: $0.frequencyRaw, startDate: $0.startDate, completedAt: $0.completedAt, isArchived: $0.isArchived) }
         f.goalEntries = try context.fetch(FetchDescriptor<GoalEntry>(sortBy: [SortDescriptor(\.date)]))
             .map { .init(id: $0.id, goalID: $0.goalID, amountCents: $0.amountCents, date: $0.date,
                          note: $0.note, affectsCash: $0.affectsCash, accountID: $0.accountID,
@@ -347,7 +349,7 @@ enum BackupService {
                 m.contributionDay = g.contributionDay; m.createdAt = g.createdAt
                 m.details = g.details ?? ""; m.priorityRaw = g.priority ?? Priority.medium.rawValue
                 m.currencyCode = g.currencyCode ?? ""; m.frequencyRaw = g.frequency ?? ContributionFrequency.monthly.rawValue
-                m.startDate = g.startDate
+                m.startDate = g.startDate; m.completedAt = g.completedAt; m.isArchived = g.isArchived ?? false
                 context.insert(m)
             }
             for e in f.goalEntries {

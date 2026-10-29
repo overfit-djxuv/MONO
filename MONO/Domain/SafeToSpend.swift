@@ -189,7 +189,7 @@ extension SafeToSpend {
         }
 
         var goalPlans: [GoalPlan] = []
-        for g in goals {
+        for g in goals where g.isOngoing {
             let plan = SavingsPlanner.plan(for: g, costs: costs, entries: entries, today: now, calendar: calendar)
             guard plan.remaining > 0, g.plannedMonthlyCents > 0,
                   let remaining = books.converter.convert(plan.remaining, from: g.currency),

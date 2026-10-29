@@ -255,6 +255,13 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var frequencyRaw: String = ContributionFrequency.monthly.rawValue
     /// Where the contribution schedule starts counting from (weekly and fortnightly schedules align to it). nil = created date.
     var startDate: Date? = nil
+    /// Set when you mark the goal completed. The money already set aside stays where it is until you withdraw it.
+    var completedAt: Date? = nil
+    /// Hidden from the active lists and left out of plans and forecasts. History is kept.
+    var isArchived: Bool = false
+
+    /// Still counts in plans, Safe to spend and forecasts.
+    var isOngoing: Bool { !isArchived && completedAt == nil }
 
     init(name: String, kind: GoalKind, symbol: String, id: UUID = UUID()) {
         self.id = id

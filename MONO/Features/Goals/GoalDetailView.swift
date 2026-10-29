@@ -14,6 +14,8 @@ struct GoalDetailView: View {
     @State private var showEdit = false
     @State private var showCompare = false
     @State private var confirmDelete = false
+    @State private var confirmComplete = false
+    @State private var confirmArchive = false
     @State private var pendingEntry: GoalEntry?
 
     private var entries: [GoalEntry] { allEntries.filter { $0.goalID == goal.id }.sorted { $0.date > $1.date } }
@@ -42,6 +44,16 @@ struct GoalDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { showEdit = true } label: { Label("Edit plan", systemImage: "pencil") }
+                    if goal.completedAt == nil {
+                        Button { confirmComplete = true } label: { Label("Mark as completed", systemImage: "checkmark.seal") }
+                    } else {
+                        Button { goal.completedAt = nil; saveGoal() } label: { Label("Reopen goal", systemImage: "arrow.uturn.backward") }
+                    }
+                    if goal.isArchived {
+                        Button { goal.isArchived = false; saveGoal() } label: { Label("Restore from archive", systemImage: "tray.and.arrow.up") }
+                    } else {
+                        Button { confirmArchive = true } label: { Label("Archive", systemImage: "archivebox") }
+                    }
                     Button(role: .destructive) { confirmDelete = true } label: { Label("Delete goal", systemImage: "trash") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
@@ -62,6 +74,12 @@ struct GoalDetailView: View {
             Text(fromCash > 0 ? "Its history and costs will be removed, and the \(goal.money(fromCash)) you moved here from cash returns to your available cash."
                               : "Its history and costs will be removed.")
         }
+        .confirmationDialog("Mark “\(goal.name)” as completed?", isPresented: $confirmComplete, titleVisibility: .visible) {
+            Button("Mark as completed") { goal.completedAt = .now; saveGoal(); Haptics.success() }
+        } message: { Text(heldMessage) }
+        .confirmationDialog("Archive “\(goal.name)”?", isPresented: $confirmArchive, titleVisibility: .visible) {
+            Button("Archive") { goal.isArchived = true; saveGoal(); Haptics.tap(); dismiss() }
+        } message: { Text("It leaves the active lists and your plans. \(heldMessage)") }
         .confirmationDialog("Delete this entry?", isPresented: Binding(get: { pendingEntry != nil }, set: { if !$0 { pendingEntry = nil } }),
                             titleVisibility: .visible, presenting: pendingEntry) { e in
             Button("Delete", role: .destructive) { context.delete(e); try? context.save() }
@@ -70,6 +88,13 @@ struct GoalDetailView: View {
         }
     }
 
+    private var held: Int { plan.saved }
+    private var heldMessage: String {
+        held > 0 ? "\(goal.money(held)) stays set aside for it until you withdraw it, which returns it to your available cash. Its history is kept."
+                 : "Its history is kept."
+    }
+    private func saveGoal() { do { try context.save() } catch { errors.report(error, doing: "Couldn’t update the goal") } }
+
     // MARK: Sections
 
     private func hero(_ p: SavingsPlan) -> some View {
@@ -77,7 +102,7 @@ struct GoalDetailView: View {
             HStack {
                 Text(goal.kind == .trip ? "Saved for trip" : "Saved").font(.footnote).foregroundStyle(Theme.inkSecondary)
                 Spacer()
-                StatusChip(text: p.statusText, tint: p.statusTint)
+                StatusChip(text: goal.completedAt != nil ? "Completed" : (goal.isArchived ? "Archived" : p.statusText), tint: goal.completedAt != nil ? Theme.accent : (goal.isArchived ? Theme.inkSecondary : p.statusTint))
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(goal.money(p.saved)).font(.figure(34, weight: .light)).foregroundStyle(Theme.ink)

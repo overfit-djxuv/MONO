@@ -200,7 +200,7 @@ struct OverviewView: View {
                 QuickChip(title: "Income", symbol: "plus") { sheet = .income }
                 QuickChip(title: "Transfer", symbol: "arrow.left.arrow.right") { sheet = .transfer }
                 QuickChip(title: "To goal", symbol: "flag") {
-                    let open = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
+                    let open = goals.filter { $0.isOngoing }.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
                     if open.count == 1, let g = open.first { sheet = .toGoal(g) } else { tab = .goals }
                 }
                 QuickChip(title: "Shopping", symbol: "cart") { tab = .shopping }
@@ -215,7 +215,7 @@ struct OverviewView: View {
 
     @ViewBuilder private func insightLine(_ budget: BudgetSummary) -> some View {
         let payments = subscriptionPayments + FinanceEngine.upcoming(planned).map { (title: $0.title, date: $0.dueDate) }
-        let behind = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status == .behind }.map(\.name)
+        let behind = goals.filter(\.isOngoing).filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status == .behind }.map(\.name)
         if let i = DashboardInsight.pick(budget: budget, payments: payments, behindGoals: behind) {
             switch i {
             case .overBudget(let c, let over):
@@ -237,11 +237,11 @@ struct OverviewView: View {
     // MARK: Goals
 
     private var goalsSection: some View {
-        let active = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
+        let active = goals.filter(\.isOngoing).filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
             .sorted { ($0.priority.rawValue, $0.deadline ?? .distantFuture) > ($1.priority.rawValue, $1.deadline ?? .distantFuture) }
             .prefix(3)
         return VStack(alignment: .leading, spacing: 0) {
-            SectionTitle(title: "Goals", trailing: goals.isEmpty ? nil : "See all") { tab = .goals }.padding(.bottom, 2)
+            SectionTitle(title: "Goals", trailing: goals.contains(where: \.isOngoing) ? "See all" : nil) { tab = .goals }.padding(.bottom, 2)
             if goals.isEmpty {
                 Button { tab = .goals } label: {
                     Text("Plan a trip or a purchase to see how much to save each month.").font(.subheadline).foregroundStyle(Theme.inkSecondary).multilineTextAlignment(.leading)
