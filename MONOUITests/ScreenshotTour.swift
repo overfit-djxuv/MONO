@@ -3,7 +3,7 @@ import XCTest
 /// Walks through the main screens with sample data and saves PNGs to ~/MONO/screenshots.
 /// Not a pass/fail test of behaviour; run on demand: -only-testing:MONOUITests/ScreenshotTour
 final class ScreenshotTour: XCTestCase {
-    let out = URL(fileURLWithPath: "/Users/you/MONO/screenshots", isDirectory: true)
+    let out = URL(fileURLWithPath: (ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"] ?? NSHomeDirectory()) + "/MONO/screenshots", isDirectory: true)
     var app: XCUIApplication!
     var n = 0
 
