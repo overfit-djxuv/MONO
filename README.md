@@ -1,5 +1,7 @@
 # MONO
 
+**Website:** https://overfit-djxuv.github.io/MONO/
+
 A minimalist, fully offline personal-finance app for iPhone. Native Swift / SwiftUI / SwiftData / Swift Charts.
 No account, no backend, no bank connection, no analytics, no network code.
 
