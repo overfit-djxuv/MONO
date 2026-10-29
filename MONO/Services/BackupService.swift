@@ -31,7 +31,13 @@ struct BackupFile: Codable, Equatable {
     /// Added in format 5: receipts and (optionally) their photos.
     var receipts: [ReceiptDTO]? = nil
 
-    struct ReceiptDTO: Codable, Equatable { var id: UUID }
+    struct ReceiptDTO: Codable, Equatable {
+        var id: UUID; var createdAt: Date; var merchant: String; var date: Date; var totalCents: Int; var taxCents: Int
+        var currencyCode: String; var language: String; var category: String; var notes: String; var ocrText: String
+        var itemsJSON: String; var transactionID: UUID?; var needsReview: Bool; var imageFile: String; var imageHash: String
+        /// The photo, when the backup includes photos.
+        var imageData: Data?
+    }
 
     struct ReservedDTO: Codable, Equatable { var id: UUID; var name: String; var amountCents: Int; var isActive: Bool; var createdAt: Date }
 
@@ -152,6 +158,7 @@ enum BackupService {
         f.reportingCurrency = Money.reporting.code
         f.reservedFunds = try context.fetch(FetchDescriptor<ReservedFund>())
             .map { .init(id: $0.id, name: $0.name, amountCents: $0.amountCents, isActive: $0.isActive, createdAt: $0.createdAt) }
+        f.receipts = ReceiptStore.backupItems(context: context, includePhotos: false)
         return f
     }
 
@@ -290,6 +297,7 @@ enum BackupService {
             try context.delete(model: ExchangeRate.self)
             try context.delete(model: ReservedFund.self)
             try context.delete(model: MoneyCategory.self)
+            try context.delete(model: Receipt.self)
 
             for a in f.accounts ?? [] {
                 let m = Account(name: a.name, kind: AccountKind(rawValue: a.kind) ?? .other, currencyCode: a.currencyCode,
@@ -361,6 +369,7 @@ enum BackupService {
                 m.remindDaysBefore = r.remindDaysBefore ?? 1
                 context.insert(m)
             }
+            ReceiptStore.insertRecords(f.receipts ?? [], into: context)
             try context.save()
         } catch {
             context.rollback()
@@ -372,6 +381,8 @@ enum BackupService {
             _ = try? AccountMigration.run(in: context, snapshotFirst: false, defaults: scratch)
             return
         }
+        ReceiptStore.writePhotos(f.receipts ?? [])
+        ReceiptStore.pruneOrphans(context: context)
         UserDefaults.standard.set(f.openingBalanceCents, forKey: "openingBalanceCents")
         UserDefaults.standard.set(f.currencySymbol, forKey: "currencySymbol")
         if let code = f.reportingCurrency { UserDefaults.standard.set(code, forKey: Money.reportingKey) }

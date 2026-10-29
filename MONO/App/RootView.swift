@@ -57,6 +57,7 @@ struct RootView: View {
         .sheet(item: $launched) { a in
             switch a {
             case .addExpense: TransactionForm(editing: nil, kind: .expense)
+            case .scanReceipt: ReceiptScanFlow(autoCamera: true)
             case .addIncome: TransactionForm(editing: nil, kind: .income)
             case .transfer: TransactionForm(editing: nil, kind: .transfer)
             case .safeToSpend: NavigationStack { SafeToSpendView().toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { launched = nil } } } }
@@ -100,6 +101,7 @@ struct RootView: View {
             presentPending()
             #if DEBUG
             DemoData.loadIfRequested(context)
+            DemoData.seedReceipt(context)
             if let i = CommandLine.arguments.firstIndex(of: "-MONOQuick"), i + 1 < CommandLine.arguments.count,
                let a = QuickAction(rawValue: CommandLine.arguments[i + 1]) { router.request(a) }
             #endif

@@ -9,6 +9,7 @@ struct BackupCenterView: View {
     @AppStorage(AutoBackup.frequencyKey) private var frequency = "off"
     @AppStorage(AutoBackup.keepKey) private var keep = 10
     @AppStorage(AutoBackup.encryptKey) private var encrypt = false
+    @AppStorage(AutoBackup.receiptsKey) private var includePhotos = true
     @AppStorage("lastBackupAt") private var lastExportAt = 0.0
     @Query private var txs: [TransactionRecord]
 
@@ -98,6 +99,8 @@ struct BackupCenterView: View {
             SectionHeader(title: "Automatic backups")
             Picker("How often", selection: $frequency) { ForEach(AutoBackup.Frequency.allCases) { Text($0.label).tag($0.rawValue) } }.pickerStyle(.segmented)
             Picker("Keep the last", selection: $keep) { ForEach([3, 5, 10, 20], id: \.self) { Text("\($0) backups").tag($0) } }
+            Hairline()
+            Toggle(isOn: $includePhotos) { Label("Include receipt photos", systemImage: "photo") }.tint(Theme.accent)
             Hairline()
             Toggle(isOn: Binding(get: { encrypt }, set: { on in
                 if on { if Keychain.get(account: AutoBackup.passphraseAccount) == nil { askPassphrase = true } else { encrypt = true } }

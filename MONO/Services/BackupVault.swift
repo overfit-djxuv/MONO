@@ -154,6 +154,7 @@ enum BackupVault {
             same("shopping items", ids(file.shoppingItems) { "\($0.id)" }, ids(back.shoppingItems) { "\($0.id)" })
             same("planned expenses", ids(file.plannedExpenses) { "\($0.id)" }, ids(back.plannedExpenses) { "\($0.id)" })
             same("subscriptions", ids(file.recurringRules ?? []) { "\($0.id)|\($0.amountCents)" }, ids(back.recurringRules ?? []) { "\($0.id)|\($0.amountCents)" })
+            same("receipts", ids(file.receipts ?? []) { "\($0.id)|\($0.totalCents)" }, ids(back.receipts ?? []) { "\($0.id)|\($0.totalCents)" })
             if let accounts = file.accounts, !accounts.isEmpty {
                 same("accounts", ids(accounts) { "\($0.id)|\($0.openingCents)|\($0.currencyCode)" },
                      ids(back.accounts ?? []) { "\($0.id)|\($0.openingCents)|\($0.currencyCode)" })
@@ -212,11 +213,11 @@ enum BackupVault {
     @MainActor
     @discardableResult
     static func create(context: ModelContext, kind: String, passphrase: String?, now: Date = .now, dir: URL = directory,
-                       iterations: Int = defaultIterations, includeReceiptPhotos: Bool = true) throws -> Entry {
+                       iterations: Int = defaultIterations, includeReceiptPhotos: Bool? = nil) throws -> Entry {
         var file = try BackupService.snapshot(context: context, openingBalanceCents: UserDefaults.standard.integer(forKey: "openingBalanceCents"),
                                               currencySymbol: Money.symbol)
         file.preferences = PreferenceBackup.capture()
-        if includeReceiptPhotos { file.receipts = ReceiptStore.backupItems(context: context, includePhotos: true) }
+        file.receipts = ReceiptStore.backupItems(context: context, includePhotos: includeReceiptPhotos ?? (UserDefaults.standard.object(forKey: AutoBackup.receiptsKey) as? Bool ?? true))
         let envelope = try makeEnvelope(file: file, kind: kind, passphrase: passphrase, now: now, iterations: iterations)
         // The test restore runs on the plain data, before anything is saved.
         let check = testRestore(file)
@@ -267,6 +268,7 @@ enum AutoBackup {
 
     static let frequencyKey = "autoBackupFrequency", keepKey = "autoBackupKeep", encryptKey = "autoBackupEncrypt", lastKey = "lastAutoBackupAt"
     static let passphraseAccount = "backup-passphrase"
+    static let receiptsKey = "autoBackupReceipts"
 
     static func isDue(_ f: Frequency, last: Date?, now: Date = .now, calendar: Calendar = .current) -> Bool {
         guard f != .off else { return false }

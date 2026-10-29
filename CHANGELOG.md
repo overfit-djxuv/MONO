@@ -9,12 +9,13 @@ Newest first. The same text appears in the app under Settings ▸ Version histor
 - Backup & recovery: manual and automatic backups, a history with sizes and status, retention, and optional passphrase encryption.
 - Restore with a preview of what's inside, a test restore, an automatic safety copy and an explicit confirmation.
 - Quick actions: touch and hold the MONO icon to add an expense, add income, transfer or open Safe to spend, and use the same actions from the Shortcuts app and Siri. They wait for Face ID first, and choose which ones show in Settings.
+- Receipts: scan with the camera or pick a photo. Text is read on your iPhone in English, Spanish or Malay (Burmese keeps the photo and you type the details). Check the shop, date, total and tax, then save as an expense, attach to an existing transaction, or keep the receipt alone. Searchable library, duplicate warnings, and photos can be included in backups.
 - Version history: changes grouped into features, improvements, fixes and security, with a rollback explanation.
 
 ### Improvements
 - Backups now include settings, themes, What-if scenarios and quick actions (never the Face ID lock).
 - The Overview backup reminder now asks for a copy saved outside MONO, because backups kept inside the app are deleted with it.
-- Backup format 5.
+- Backup format 5, with receipts and optional photos.
 
 ### Security
 - Backup passphrases are stored in the iPhone Keychain, never inside a backup file.

@@ -438,7 +438,7 @@ enum AppSchema {
     static let models: [any PersistentModel.Type] = [
         MoneyCategory.self, TransactionRecord.self, MonthBudget.self, BudgetLimit.self,
         PlannedExpense.self, ShoppingItem.self, SavingsGoal.self, GoalEntry.self, TripCost.self, RecurringRule.self,
-        Account.self, ExchangeRate.self, ReservedFund.self,
+        Account.self, ExchangeRate.self, ReservedFund.self, Receipt.self,
     ]
 }
 
@@ -487,4 +487,31 @@ enum DefaultCategories {
         UserDefaults.standard.set(true, forKey: seededKey)
         UserDefaults.standard.set(true, forKey: essentialSeededKey)
     }
+}
+
+// MARK: - Receipts
+
+/// A captured receipt. The photo lives in a file (see ReceiptStore); everything here is text you can search and edit.
+@Model final class Receipt {
+    var id: UUID = UUID()
+    var createdAt: Date = Date()
+    var merchant: String = ""
+    var date: Date = Date()
+    var totalCents: Int = 0
+    var taxCents: Int = 0
+    var currencyCode: String = ""
+    /// The scan language the user chose: auto, en, es, ms or my (Burmese: photo only, entered by hand).
+    var languageRaw: String = "auto"
+    var imageFile: String = ""
+    var imageHash: String = ""
+    var ocrText: String = ""
+    /// JSON `[ReceiptItem]`: possible line items found by the scan. Informational only.
+    var itemsJSON: String = ""
+    var notes: String = ""
+    var category: String = ""
+    /// The transaction this receipt belongs to, if any.
+    var transactionID: UUID? = nil
+    var needsReview: Bool = false
+
+    init(id: UUID = UUID()) { self.id = id }
 }

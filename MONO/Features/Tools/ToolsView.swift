@@ -30,6 +30,11 @@ struct ToolsView: View {
                             detail: "A report for any month: income, spending, budget, goals, comparisons. Tap a figure to see its transactions; export it.")
                 }
                 .buttonStyle(PressableStyle())
+                NavigationLink { ReceiptsView() } label: {
+                    ToolRow(symbol: "doc.text.viewfinder", title: "Receipts",
+                            detail: "Scan or photograph a receipt in English, Spanish or Malay, check what was read, and attach it to a transaction. Burmese: photo and manual entry.")
+                }
+                .buttonStyle(PressableStyle())
                 NavigationLink { SafeToSpendView() } label: {
                     ToolRow(symbol: "shield.lefthalf.filled", title: "Safe to spend",
                             detail: "What you can spend without touching bills, savings or essentials.")

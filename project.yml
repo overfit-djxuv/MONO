@@ -34,6 +34,7 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSCameraUsageDescription: "MONO uses the camera to scan receipts. Photos stay on this iPhone."
         INFOPLIST_KEY_NSFaceIDUsageDescription: "MONO uses Face ID to keep your finances private."
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.finance
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO

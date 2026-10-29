@@ -4,12 +4,13 @@ import AppIntents
 
 /// Things you can start straight from the home-screen icon or the Shortcuts app.
 enum QuickAction: String, CaseIterable, Identifiable, Codable {
-    case addExpense, addIncome, transfer, safeToSpend
+    case addExpense, scanReceipt, addIncome, transfer, safeToSpend
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .addExpense: "Add expense"
+        case .scanReceipt: "Scan receipt"
         case .addIncome: "Add income"
         case .transfer: "Transfer"
         case .safeToSpend: "Safe to spend"
@@ -18,6 +19,7 @@ enum QuickAction: String, CaseIterable, Identifiable, Codable {
     var symbol: String {
         switch self {
         case .addExpense: "minus.circle"
+        case .scanReceipt: "doc.viewfinder"
         case .addIncome: "plus.circle"
         case .transfer: "arrow.left.arrow.right"
         case .safeToSpend: "shield.lefthalf.filled"
@@ -105,6 +107,12 @@ struct AddExpenseIntent: AppIntent {
     static let openAppWhenRun = true
     @MainActor func perform() async throws -> some IntentResult { AppRouter.shared.request(.addExpense); return .result() }
 }
+struct ScanReceiptIntent: AppIntent {
+    static let title: LocalizedStringResource = "Scan a receipt"
+    static let description = IntentDescription("Opens MONO's receipt scanner.")
+    static let openAppWhenRun = true
+    @MainActor func perform() async throws -> some IntentResult { AppRouter.shared.request(.scanReceipt); return .result() }
+}
 struct AddIncomeIntent: AppIntent {
     static let title: LocalizedStringResource = "Add income"
     static let description = IntentDescription("Opens MONO ready to record income.")
@@ -128,6 +136,8 @@ struct MONOShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: AddExpenseIntent(), phrases: ["Add an expense in \(.applicationName)", "Log spending in \(.applicationName)"],
                     shortTitle: "Add expense", systemImageName: "minus.circle")
+        AppShortcut(intent: ScanReceiptIntent(), phrases: ["Scan a receipt in \(.applicationName)"],
+                    shortTitle: "Scan receipt", systemImageName: "doc.viewfinder")
         AppShortcut(intent: AddIncomeIntent(), phrases: ["Add income in \(.applicationName)"],
                     shortTitle: "Add income", systemImageName: "plus.circle")
         AppShortcut(intent: TransferIntent(), phrases: ["Transfer money in \(.applicationName)"],

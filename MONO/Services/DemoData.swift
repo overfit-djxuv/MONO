@@ -1,10 +1,26 @@
 #if DEBUG
 import Foundation
 import SwiftData
+import UIKit
 
 /// Debug-only sample data for simulator screenshots and UI tests (launch with `-MONODemo`).
 /// Compiled out of Release builds, so the shipped app never contains invented records.
 enum DemoData {
+    /// A rendered sample receipt so the Receipts screens can be seen in the simulator.
+    static func seedReceipt(_ context: ModelContext) {
+        guard CommandLine.arguments.contains("-MONODemo"), ((try? context.fetchCount(FetchDescriptor<Receipt>())) ?? 0) == 0 else { return }
+        let lines = ["VILLAGE GROCER", "Date: 2026-10-12", "Milk 1L          RM 7.90", "Bread            RM 9.00", "SST 6%           RM 1.01", "TOTAL            RM 17.91"]
+        let size = CGSize(width: 900, height: 700)
+        let img = UIGraphicsImageRenderer(size: size).image { ctx in
+            UIColor.white.setFill(); ctx.fill(CGRect(origin: .zero, size: size))
+            for (i, l) in lines.enumerated() { (l as NSString).draw(at: CGPoint(x: 40, y: 40 + CGFloat(i) * 100), withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 52, weight: .regular), .foregroundColor: UIColor.black]) }
+        }
+        guard let data = ReceiptStore.prepared(img), let file = try? ReceiptStore.store(data) else { return }
+        let r = Receipt(); r.merchant = "Village Grocer"; r.totalCents = 1791; r.taxCents = 101; r.currencyCode = "MYR"; r.imageFile = file; r.imageHash = ReceiptStore.hash(data)
+        r.date = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 12)) ?? .now; r.category = "Groceries"
+        context.insert(r); try? context.save()
+    }
+
     static func loadIfRequested(_ context: ModelContext) {
         guard CommandLine.arguments.contains("-MONODemo") else { return }
         guard ((try? context.fetchCount(FetchDescriptor<TransactionRecord>())) ?? 0) == 0 else { return }
