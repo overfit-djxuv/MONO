@@ -15,6 +15,11 @@ struct ToolsView: View {
                             detail: "Daily average, weekly pattern, biggest expenses and what’s changed, from your own records.")
                 }
                 .buttonStyle(PressableStyle())
+                NavigationLink { PurchaseSimulatorView() } label: {
+                    ToolRow(symbol: "bag.badge.questionmark", title: "Purchase simulator",
+                            detail: "Test a purchase first: your money, budget, goals, hours of work, and buy now vs wait vs cheaper.")
+                }
+                .buttonStyle(PressableStyle())
                 NavigationLink { SafeToSpendView() } label: {
                     ToolRow(symbol: "shield.lefthalf.filled", title: "Safe to spend",
                             detail: "What you can spend without touching bills, savings or essentials.")

@@ -315,3 +315,70 @@ final class InsightsTests: XCTestCase {
         XCTAssertEqual(r.map(\.cents), [1_599, 1_599])
     }
 }
+
+// MARK: - Purchase simulator
+
+final class PurchaseSimulatorTests: XCTestCase {
+    private func ctx(safe: Int = 80_000, safe30: Int = 30_000, income: Int = 400_000, expense: Int = 150_000) -> PurchaseSimulator.Context {
+        .init(availableCash: 200_000, safeToSpendNow: safe, safeToSpend30Days: safe30, thirtyDaysFrom: date(2026, 4, 9),
+              monthIncome: income, monthExpense: expense, budgetTotal: 250_000, budgetSpent: 150_000,
+              categoryBudgets: ["Shopping": (limit: 20_000, spent: 15_000)],
+              goals: [.init(name: "Tokyo", priority: 2, monthlyPace: 60_000, remaining: 600_000, estimatedCompletion: date(2027, 1, 5)),
+                      .init(name: "Laptop", priority: 1, monthlyPace: 20_000, remaining: 100_000, estimatedCompletion: date(2026, 9, 1)),
+                      .init(name: "No plan", priority: 1, monthlyPace: 0, remaining: 50_000, estimatedCompletion: nil),
+                      .init(name: "Done", priority: 3, monthlyPace: 10_000, remaining: 0, estimatedCompletion: nil)])
+    }
+    private func run(_ price: Int, category: String? = nil, hourly: Int? = nil, _ c: PurchaseSimulator.Context? = nil) -> PurchaseSimulator.Result {
+        PurchaseSimulator.evaluate(price: price, category: category, hourlyRate: hourly, now: date(2026, 3, 10), context: c ?? ctx())
+    }
+
+    func testAvailableMoneyAndSafeToSpendBeforeAndAfter() {
+        let r = run(30_000)
+        XCTAssertEqual(r.cashBefore, 200_000); XCTAssertEqual(r.cashAfter, 170_000)
+        XCTAssertEqual(r.safeBefore, 80_000); XCTAssertEqual(r.safeAfter, 50_000); XCTAssertTrue(r.fitsSafeToSpend); XCTAssertEqual(r.overSafeBy, 0)
+        let big = run(100_000)
+        XCTAssertFalse(big.fitsSafeToSpend); XCTAssertEqual(big.overSafeBy, 20_000); XCTAssertEqual(big.safeAfter, -20_000)
+    }
+    func testBudgetEffectOverallAndByCategory() {
+        let r = run(12_000, category: "Shopping")
+        XCTAssertEqual(r.overall?.remainingBefore, 100_000); XCTAssertEqual(r.overall?.remainingAfter, 88_000)
+        XCTAssertEqual(r.category?.remainingBefore, 5_000); XCTAssertEqual(r.category?.remainingAfter, -7_000)
+        XCTAssertTrue(r.category?.goesOver ?? false)
+        XCTAssertNil(run(500, category: "Food").category, "a category without a limit has no category effect")
+        XCTAssertNil(run(500, category: nil).category)
+        var none = ctx(); none.budgetTotal = nil
+        XCTAssertNil(run(500, none).overall)
+        XCTAssertTrue(run(300_000).overall?.goesOver ?? false)
+    }
+    func testSavingsRateDropsByThePurchase() {
+        let r = run(40_000)
+        XCTAssertEqual(try XCTUnwrap(r.savingsRateBefore), 250_000.0 / 400_000.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(r.savingsRateAfter), 210_000.0 / 400_000.0, accuracy: 1e-9)
+        XCTAssertNil(run(1, ctx(income: 0)).savingsRateBefore, "no income this month, no rate")
+    }
+    func testGoalDelayIsThePriceOverTheMonthlyPaceInDays() {
+        let r = run(30_000)   // 30,000 ÷ 60,000 a month = half a month ≈ 15 days
+        let tokyo = try? XCTUnwrap(r.goalDelays.first { $0.name == "Tokyo" })
+        XCTAssertEqual(tokyo?.delayDays, 15)
+        XCTAssertEqual(tokyo?.newEstimate, Calendar.current.date(byAdding: .day, value: 15, to: date(2027, 1, 5)))
+        XCTAssertEqual(r.goalDelays.first { $0.name == "Laptop" }?.delayDays, 46, "30,000 ÷ 20,000 = 1.5 months")
+        XCTAssertNil(r.goalDelays.first { $0.name == "No plan" }?.delayDays, "no plan, no estimate: not guessed")
+        XCTAssertFalse(r.goalDelays.contains { $0.name == "Done" }, "funded goals aren't delayed")
+        XCTAssertEqual(r.goalDelays.first?.name, "Tokyo", "higher priority first")
+    }
+    func testHoursOfWork() {
+        XCTAssertEqual(try XCTUnwrap(run(30_000, hourly: 2_000).hoursOfWork), 15, accuracy: 1e-9)
+        XCTAssertNil(run(30_000, hourly: nil).hoursOfWork); XCTAssertNil(run(30_000, hourly: 0).hoursOfWork)
+    }
+    func testWaitingThirtyDaysUsesOnlyWhatIsAlreadyCommitted() {
+        let w = PurchaseSimulator.waiting30Days(price: 20_000, context: ctx(safe30: 30_000))
+        XCTAssertTrue(w.stillAffordable); XCTAssertEqual(w.leftAfterBuying, 10_000); XCTAssertEqual(w.date, date(2026, 4, 9))
+        let no = PurchaseSimulator.waiting30Days(price: 50_000, context: ctx(safe30: 30_000))
+        XCTAssertFalse(no.stillAffordable); XCTAssertEqual(no.leftAfterBuying, -20_000)
+    }
+    func testACheaperAlternativeIsJustAnotherEvaluation() {
+        let a = run(100_000), b = run(40_000)
+        XCTAssertLessThan(b.overSafeBy, a.overSafeBy); XCTAssertTrue(b.fitsSafeToSpend)
+        XCTAssertLessThan(b.goalDelays[0].delayDays ?? 0, a.goalDelays[0].delayDays ?? 0)
+    }
+}

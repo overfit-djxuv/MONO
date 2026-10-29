@@ -25,12 +25,13 @@ enum Money {
     }()
 
     /// "RM 1,234.50", negatives as "−RM 1,234.50".
-    static func format(_ cents: Int, signed: Bool = false, symbol: String? = nil, currency: Currency? = nil) -> String {
+    /// `ignoreHiding` is only for files you explicitly export; on screen, Hide amounts always wins.
+    static func format(_ cents: Int, signed: Bool = false, symbol: String? = nil, currency: Currency? = nil, ignoreHiding: Bool = false) -> String {
         let cur = currency ?? reporting
         let sym = symbol ?? (currency == nil ? Self.symbol : cur.symbol)
         let a = abs(cents)
         // Hide amounts: the figure becomes dots but the symbol and the sign stay, so income still reads as income.
-        if PrivacyStore.shared.hidden {
+        if PrivacyStore.shared.hidden && !ignoreHiding {
             let masked = "\(sym) \(PrivacyStore.mask)"
             if cents < 0 { return "−" + masked }
             return signed && cents > 0 ? "+" + masked : masked

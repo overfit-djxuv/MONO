@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-enum OverviewRoute: Hashable { case analytics, settings, appIcon, history, theme, accounts, tools, safeToSpend, subscriptions, insights }
+enum OverviewRoute: Hashable { case analytics, settings, appIcon, history, theme, accounts, tools, safeToSpend, subscriptions, insights, purchase, whatIf, review, receipts, backup }
 
 struct OverviewView: View {
     @Binding var tab: AppTab
@@ -26,7 +26,7 @@ struct OverviewView: View {
     private static var initialPath: [OverviewRoute] {
         #if DEBUG
         if let i = CommandLine.arguments.firstIndex(of: "-MONOScreen"), i + 1 < CommandLine.arguments.count {
-            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; case "tools": return [.tools]; case "safe": return [.safeToSpend]; case "subs": return [.subscriptions]; case "insights": return [.insights]; default: break }
+            switch CommandLine.arguments[i + 1] { case "analytics": return [.analytics]; case "settings": return [.settings]; case "appicon": return [.appIcon]; case "history": return [.history]; case "theme": return [.theme]; case "accounts": return [.accounts]; case "tools": return [.tools]; case "safe": return [.safeToSpend]; case "subs": return [.subscriptions]; case "insights": return [.insights]; case "purchase": return [.purchase]; default: break }
         }
         #endif
         return []
@@ -88,7 +88,7 @@ struct OverviewView: View {
             .monoScreen()
             .navigationTitle("Overview")
             .navigationDestination(for: OverviewRoute.self) { r in
-                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView(); case .tools: ToolsView(); case .safeToSpend: SafeToSpendView(); case .subscriptions: SubscriptionsView(); case .insights: InsightsView() }
+                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView(); case .tools: ToolsView(); case .safeToSpend: SafeToSpendView(); case .subscriptions: SubscriptionsView(); case .insights: InsightsView(); case .purchase: PurchaseSimulatorView(); default: ToolsView() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
