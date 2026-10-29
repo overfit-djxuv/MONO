@@ -10,6 +10,8 @@ struct RootView: View {
     @State private var tab: AppTab = RootView.initialTab
     @State private var errors = ErrorCenter()
     @State private var lock = AppLock()
+    @State private var router = AppRouter.shared
+    @State private var launched: QuickAction?
     @Query private var recurring: [RecurringRule]
     @Query private var accounts: [Account]
     @AppStorage(Reminders.hourKey) private var reminderHour = 9
@@ -52,6 +54,16 @@ struct RootView: View {
                 .tag(AppTab.goals)
         }
         .tint(Theme.accent)
+        .sheet(item: $launched) { a in
+            switch a {
+            case .addExpense: TransactionForm(editing: nil, kind: .expense)
+            case .addIncome: TransactionForm(editing: nil, kind: .income)
+            case .transfer: TransactionForm(editing: nil, kind: .transfer)
+            case .safeToSpend: NavigationStack { SafeToSpendView().toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { launched = nil } } } }
+            }
+        }
+        .onChange(of: router.pending) { _, _ in presentPending() }
+        .onChange(of: lock.isLocked) { _, _ in presentPending() }
         .preferredColorScheme(scheme)
         .environment(errors)
         .environment(lock)
@@ -84,14 +96,21 @@ struct RootView: View {
             migrateAccounts()
             if lock.isLocked { await lock.unlock() }
             AutoBackup.runIfDue(context: context)
+            QuickActionSettings.publish()
+            presentPending()
             #if DEBUG
             DemoData.loadIfRequested(context)
+            if let i = CommandLine.arguments.firstIndex(of: "-MONOQuick"), i + 1 < CommandLine.arguments.count,
+               let a = QuickAction(rawValue: CommandLine.arguments[i + 1]) { router.request(a) }
             #endif
         }
     }
 }
 
 extension RootView {
+    fileprivate func presentPending() {
+        if let a = router.take(isLocked: lock.isLocked) { launched = a }
+    }
     /// Changes whenever a planned expense is added, edited, paid or removed.
     fileprivate var plannedSignature: [String] {
         planned.map { "\($0.id)|\($0.title)|\($0.amountCents)|\($0.dueDate.timeIntervalSince1970)|\($0.isPaid)" }

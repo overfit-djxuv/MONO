@@ -89,6 +89,10 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink { QuickActionsSettingsView() } label: { Label("Quick actions & Shortcuts", systemImage: "bolt") }
+            } footer: { Text("Start an entry from the home-screen icon, Siri or the Shortcuts app.") }
+
+            Section {
                 NavigationLink { BackupCenterView() } label: {
                     HStack(spacing: 12) {
                         Label("Backup & recovery", systemImage: "externaldrive.badge.checkmark")

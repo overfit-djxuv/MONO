@@ -464,3 +464,31 @@ final class SystemThemeTests: XCTestCase {
         XCTAssertNil(IconColor.matching(paletteID: "custom-123"))
     }
 }
+
+final class QuickActionTests: XCTestCase {
+    private func defaults() -> UserDefaults { let d = UserDefaults(suiteName: "qa-\(UUID())")!; return d }
+    func testDefaultsShowEveryActionUpToTheLimit() {
+        XCTAssertEqual(QuickActionSettings.shown(defaults()), Array(QuickAction.allCases.prefix(4)))
+    }
+    func testTogglingAndOrderPersist() {
+        let d = defaults()
+        QuickActionSettings.toggle(.addIncome, on: false, d)
+        XCTAssertFalse(QuickActionSettings.enabled(d).contains(.addIncome))
+        QuickActionSettings.toggle(.addIncome, on: true, d)
+        XCTAssertEqual(QuickActionSettings.enabled(d).last, .addIncome)
+    }
+    func testGarbageAndDuplicatesAreIgnored() {
+        let d = defaults(); d.set("addExpense,bogus,addExpense,transfer", forKey: QuickActionSettings.key)
+        XCTAssertEqual(QuickActionSettings.enabled(d), [.addExpense, .transfer])
+    }
+    func testShortcutTypeRoundTrips() {
+        for a in QuickAction.allCases { XCTAssertEqual(QuickAction(shortcutType: a.shortcutType), a) }
+        XCTAssertNil(QuickAction(shortcutType: "other.thing"))
+    }
+    @MainActor func testActionWaitsForUnlock() {
+        let r = AppRouter(); r.request(.transfer)
+        XCTAssertNil(r.take(isLocked: true))
+        XCTAssertEqual(r.take(isLocked: false), .transfer)
+        XCTAssertNil(r.take(isLocked: false))
+    }
+}

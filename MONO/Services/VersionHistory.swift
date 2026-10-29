@@ -24,6 +24,7 @@ enum VersionHistory {
                         "Monthly review: a timeline of past months with income, spending, savings rate, categories, patterns and things worth a look. Tap any figure to see the transactions behind it, and export as PDF, Markdown or CSV.",
                         "Backup & recovery: manual and automatic backups, a history with sizes and status, retention, and optional passphrase encryption.",
                         "Restore with a preview of what's inside, a test restore, an automatic safety copy and an explicit confirmation.",
+                        "Quick actions: touch and hold the MONO icon to add an expense, add income, transfer or open Safe to spend, and use the same actions from the Shortcuts app and Siri. They wait for Face ID first, and choose which ones show in Settings.",
                         "Version history: changes grouped into features, improvements, fixes and security, with a rollback explanation."],
                 improvements: ["Backups now include settings, themes, What-if scenarios and quick actions (never the Face ID lock).",
                                "The Overview backup reminder now asks for a copy saved outside MONO, because backups kept inside the app are deleted with it.",

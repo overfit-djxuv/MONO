@@ -4,6 +4,7 @@ import UserNotifications
 
 @main
 struct MONOApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let container: Result<ModelContainer, Error>
 
     init() {
