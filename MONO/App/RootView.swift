@@ -69,7 +69,7 @@ struct RootView: View {
             case .active:
                 refreshReminders()
                 refreshBudgetAlert()
-                if lock.isLocked { Task { await lock.unlock() } }
+                if lock.isLocked { Task { await lock.unlock() } } else { AutoBackup.runIfDue(context: context) }
             default: break
             }
         }
@@ -83,6 +83,7 @@ struct RootView: View {
             DefaultCategories.seedEssentialsIfNeeded(context)
             migrateAccounts()
             if lock.isLocked { await lock.unlock() }
+            AutoBackup.runIfDue(context: context)
             #if DEBUG
             DemoData.loadIfRequested(context)
             #endif

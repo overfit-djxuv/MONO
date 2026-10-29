@@ -49,9 +49,9 @@ struct OverviewView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if BackupService.isBackupStale(lastBackup: lastBackupAt > 0 ? Date(timeIntervalSince1970: lastBackupAt) : nil,
                                                    hasData: !txs.isEmpty) {
-                        Button { path.append(.settings) } label: {
-                            Callout(text: lastBackupAt > 0 ? "No backup in over a week. Tap to back up your data."
-                                                           : "You haven’t backed up yet. Tap to save a copy of your data.",
+                        Button { path.append(.backup) } label: {
+                            Callout(text: lastBackupAt > 0 ? "No copy saved outside MONO in over a week. Tap to save one."
+                                                           : "No copy of your data is saved outside MONO yet. Tap to save one.",
                                     tone: .warning, symbol: "externaldrive.badge.exclamationmark")
                         }
                         .buttonStyle(PressableStyle())
@@ -88,7 +88,7 @@ struct OverviewView: View {
             .monoScreen()
             .navigationTitle("Overview")
             .navigationDestination(for: OverviewRoute.self) { r in
-                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView(); case .tools: ToolsView(); case .safeToSpend: SafeToSpendView(); case .subscriptions: SubscriptionsView(); case .insights: InsightsView(); case .purchase: PurchaseSimulatorView(); case .whatIf: WhatIfLabView(); case .review: MonthlyReviewView(); default: ToolsView() }
+                switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView(); case .tools: ToolsView(); case .safeToSpend: SafeToSpendView(); case .subscriptions: SubscriptionsView(); case .insights: InsightsView(); case .purchase: PurchaseSimulatorView(); case .whatIf: WhatIfLabView(); case .review: MonthlyReviewView(); case .backup: BackupCenterView(); default: ToolsView() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

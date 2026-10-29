@@ -17,14 +17,9 @@ struct SettingsView: View {
     @Environment(AppLock.self) private var lock
 
     @State private var exportURL: URL?
-    @State private var backupDoc: BackupDocument?
-    @State private var showBackupExporter = false
     @State private var lockMessage: String?
     @State private var showImporter = false
-    @State private var importingCSV = false
     @State private var csvRecords: CSVRecords?
-    @State private var pendingImport: BackupFile?
-    @State private var importSummary = ""
     @State private var confirmErase = false
     @State private var confirmEraseFinal = false
     @State private var working = false
@@ -94,20 +89,20 @@ struct SettingsView: View {
             }
 
             Section {
-                HStack {
-                    Text("Last backup")
-                    Spacer()
-                    Text(lastBackupText).foregroundStyle(backupIsStale ? Theme.warning : Theme.inkSecondary)
+                NavigationLink { BackupCenterView() } label: {
+                    HStack(spacing: 12) {
+                        Label("Backup & recovery", systemImage: "externaldrive.badge.checkmark")
+                        Spacer()
+                        Text(backupStatusText).foregroundStyle(backupIsStale ? Theme.warning : Theme.inkSecondary)
+                    }
                 }
-                Button { exportBackup() } label: { Label("Back up now", systemImage: "externaldrive") }
                 if let exportURL {
                     ShareLink(item: exportURL) { Label("Share transactions file", systemImage: "square.and.arrow.up") }
                 }
                 Button { exportCSV() } label: { Label("Export transactions (CSV)", systemImage: "tablecells") }
-                Button { importingCSV = true; showImporter = true } label: { Label("Import transactions (CSV)…", systemImage: "square.and.arrow.down") }
-                Button { importingCSV = false; showImporter = true } label: { Label("Restore from backup…", systemImage: "arrow.counterclockwise") }
-            } header: { Text("Backup") } footer: {
-                Text("Back up now saves a file to Files or iCloud Drive; keep a copy somewhere other than this iPhone. Nothing is uploaded by MONO. Restoring replaces all current records.")
+                Button { showImporter = true } label: { Label("Import transactions (CSV)…", systemImage: "square.and.arrow.down") }
+            } header: { Text("Data") } footer: {
+                Text("Backups can be locked with a passphrase and restored with a safety copy first. CSV files are for spreadsheets.")
             }
 
             if let expiry = ProfileInfo.expiry {
@@ -156,28 +151,11 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden).monoScreen()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .fileExporter(isPresented: $showBackupExporter, document: backupDoc, contentType: .json,
-                      defaultFilename: "MONO-backup-\(stamp())") { result in
-            backupDoc = nil
-            switch result {
-            case .success: lastBackupAt = Date.now.timeIntervalSince1970; Haptics.success()
-            case .failure(let e): errors.report(e, doing: "Couldn’t save backup")
-            }
-        }
         .alert("Can’t turn that on", isPresented: Binding(get: { lockMessage != nil }, set: { if !$0 { lockMessage = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(lockMessage ?? "") }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: importingCSV ? [.commaSeparatedText, .plainText] : [.json]) { result in
-            if importingCSV { handleCSV(result) } else { handleImport(result) }
-        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.commaSeparatedText, .plainText]) { handleCSV($0) }
         .sheet(item: $csvRecords) { CSVImportView(records: $0.rows) }
-        .confirmationDialog("Replace all data with this backup?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }),
-                            titleVisibility: .visible) {
-            Button("Replace everything", role: .destructive) { applyImport() }
-            Button("Cancel", role: .cancel) { pendingImport = nil }
-        } message: {
-            Text("\(importSummary)\n\nYour current records on this iPhone will be deleted and cannot be recovered unless you made a backup.")
-        }
         .confirmationDialog("Erase all data?", isPresented: $confirmErase, titleVisibility: .visible) {
             Button("Continue", role: .destructive) { confirmEraseFinal = true }
         } message: { Text("This removes every transaction, budget, list and goal from this iPhone.") }
@@ -197,8 +175,8 @@ struct SettingsView: View {
 
     private var lastBackup: Date? { lastBackupAt > 0 ? Date(timeIntervalSince1970: lastBackupAt) : nil }
     private var backupIsStale: Bool { BackupService.isBackupStale(lastBackup: lastBackup, hasData: !txs.isEmpty) }
-    private var lastBackupText: String {
-        guard let d = lastBackup else { return "Never" }
+    private var backupStatusText: String {
+        guard let d = BackupVault.history().first(where: { $0.kind != "safety" && $0.intact })?.createdAt else { return "None yet" }
         return Calendar.current.isDateInToday(d) ? "Today" : d.formatted(.relative(presentation: .named))
     }
 
@@ -237,14 +215,6 @@ struct SettingsView: View {
         }
     }
 
-    private func exportBackup() {
-        do {
-            let file = try BackupService.snapshot(context: context, openingBalanceCents: UserDefaults.standard.integer(forKey: "openingBalanceCents"), currencySymbol: Money.symbol)
-            backupDoc = BackupDocument(data: try BackupService.encode(file))
-            showBackupExporter = true
-        } catch { errors.report(error, doing: "Couldn’t create backup") }
-    }
-
     private func exportCSV() {
         do {
             let all = try context.fetch(FetchDescriptor<TransactionRecord>())
@@ -264,24 +234,6 @@ struct SettingsView: View {
         return f.string(from: .now)
     }
 
-    // MARK: Import
-
-    private func handleImport(_ result: Result<URL, Error>) {
-        switch result {
-        case .failure(let e): errors.report(e, doing: "Couldn’t open file")
-        case .success(let url):
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                guard size < 50_000_000 else { throw BackupError.invalid("the file is unexpectedly large") }
-                let file = try BackupService.decode(Data(contentsOf: url))
-                importSummary = "Backup from \(file.exportedAt.short): \(file.transactions.count) transactions, \(file.goals.count) goals, \(file.shoppingItems.count) shopping items, \(file.budgetLimits.count) budget limits."
-                pendingImport = file
-            } catch { errors.report(error, doing: "Can’t restore") }
-        }
-    }
-
     private func handleCSV(_ result: Result<URL, Error>) {
         switch result {
         case .failure(let e): errors.report(e, doing: "Couldn’t open file")
@@ -291,14 +243,6 @@ struct SettingsView: View {
         }
     }
 
-    private func applyImport() {
-        guard let file = pendingImport else { return }
-        pendingImport = nil
-        do {
-            try BackupService.replaceAll(with: file, in: context)
-            Haptics.success()
-        } catch { errors.report(error, doing: "Restore failed — your existing data was kept") }
-    }
 }
 
 struct CategoriesView: View {
