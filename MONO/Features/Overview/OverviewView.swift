@@ -254,21 +254,11 @@ struct OverviewView: View {
                                 subtitle: "\(g.money(plan.saved)) of \(g.money(plan.target))",
                                 trailing: "\(Int((plan.percentFunded * 100).rounded()))%", value: plan.percentFunded,
                                 tint: plan.status == .overdue ? Theme.danger : plan.status == .behind ? Theme.warning : Theme.accent,
-                                note: goalNote(g, plan), noteTint: plan.status == .behind ? Theme.warning : Theme.inkSecondary)
+                                note: g.progressNote(plan), noteTint: plan.status == .behind ? Theme.warning : Theme.inkSecondary)
                 }
                 .buttonStyle(PressableStyle())
                 if i < active.count - 1 { Hairline() }
             }
-        }
-    }
-
-    private func goalNote(_ g: SavingsGoal, _ plan: SavingsPlan) -> String? {
-        guard let r = plan.requiredMonthly else { return nil }
-        let pace = "\(g.money(r)) each \(g.frequency.noun) needed"
-        switch plan.status {
-        case .behind: return "Behind plan · \(pace)"
-        case .overdue: return "Past its date · \(pace)"
-        default: return pace
         }
     }
 

@@ -27,6 +27,7 @@ struct GoalDetailView: View {
                 hero(p)
                 metrics(p)
                 messages(p)
+                progressChart
                 actions
             }
             .listRowBackground(Color.clear).listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 8, leading: Theme.gutter, bottom: 8, trailing: Theme.gutter))
@@ -111,47 +112,56 @@ struct GoalDetailView: View {
         return "\(noun) \(date.short) · \(days) \(days == 1 ? "day" : "days") to go"
     }
 
+    @State private var showPlanDetails = false
+
+    @ViewBuilder private var progressChart: some View {
+        let points = FinanceEngine.savingsGrowth(entries: entries, through: MonthKey(.now))
+        if points.count >= 2 {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(title: "Progress")
+                SavingsGrowthChart(points: points, height: 110).hidesAmounts()
+            }.surface()
+        }
+    }
+
     private func metrics(_ p: SavingsPlan) -> some View {
         VStack(spacing: 14) {
-            Hairline()
             HStack(alignment: .top, spacing: 16) {
                 Metric(label: "Left to save", value: goal.money(p.remaining))
-                Metric(label: "Funded", value: "\(Int((p.percentFunded * 100).rounded()))%")
-            }
-            HStack(alignment: .top, spacing: 16) {
                 Metric(label: "Needed each \(goal.frequency.noun)",
                        value: p.status == .funded ? "—" : (p.requiredMonthly.map { goal.money($0) } ?? (p.remaining > 0 ? "Due now" : "—")),
                        footnote: p.status == .funded || p.requiredMonthly == nil ? nil : "to finish by the date")
-                Metric(label: "Contributions left", value: goal.deadline == nil ? "—" : "\(p.contributionsRemaining)",
-                       footnote: goal.plannedMonthlyCents > 0 ? "\(goal.money(goal.plannedMonthlyCents)) each \(goal.frequency.noun)\(goal.frequency == .monthly ? ", day \(goal.contributionDay)" : "")" : "No plan set")
-            }
-            if let m = p.requiredMonthlyEquivalent, p.status != .funded, goal.frequency != .monthly || p.requiredMonthly != m {
-                HStack(alignment: .top, spacing: 16) {
-                    Metric(label: "Monthly equivalent", value: goal.money(m), footnote: "left to save ÷ months left")
-                    Metric(label: "Months left", value: p.monthsRemaining.map { String(format: "%.1f", $0) } ?? "—")
-                }
             }
             if p.status != .funded, p.remaining > 0 {
                 HStack(alignment: .top, spacing: 16) {
                     Metric(label: "Estimated completion",
                            value: p.estimatedCompletion?.formatted(.dateTime.day().month(.abbreviated).year()) ?? "—",
-                           tint: estimateTint(p),
-                           footnote: estimateNote(p))
-                    Color.clear.frame(maxWidth: .infinity)
+                           tint: estimateTint(p), footnote: estimateNote(p))
+                    Metric(label: "Funded", value: "\(Int((p.percentFunded * 100).rounded()))%")
                 }
             }
-            if goal.deadline != nil {
-                HStack(alignment: .top, spacing: 16) {
-                    Metric(label: goal.kind == .trip ? "Expected at departure" : "Expected at deadline",
-                           value: goal.money(p.expectedAtDeadline),
-                           tint: p.expectedAtDeadline >= p.target ? Theme.accent : Theme.ink)
-                    Metric(label: p.shortfall > 0 ? "Shortfall" : "Surplus",
-                           value: goal.money(p.shortfall > 0 ? p.shortfall : p.surplus),
-                           tint: p.shortfall > 0 ? Theme.warning : Theme.ink)
-                }
-            }
-            Hairline()
+            DisclosureGroup(isExpanded: $showPlanDetails) {
+                VStack(spacing: 14) {
+                    HStack(alignment: .top, spacing: 16) {
+                        Metric(label: "Contributions left", value: goal.deadline == nil ? "—" : "\(p.contributionsRemaining)",
+                               footnote: goal.plannedMonthlyCents > 0 ? "\(goal.money(goal.plannedMonthlyCents)) each \(goal.frequency.noun)\(goal.frequency == .monthly ? ", day \(goal.contributionDay)" : "")" : "No plan set")
+                        if let m = p.requiredMonthlyEquivalent, p.status != .funded {
+                            Metric(label: "Monthly equivalent", value: goal.money(m), footnote: "left to save ÷ \(p.monthsRemaining.map { String(format: "%.1f", $0) } ?? "—") months left")
+                        } else { Color.clear.frame(maxWidth: .infinity) }
+                    }
+                    if goal.deadline != nil {
+                        HStack(alignment: .top, spacing: 16) {
+                            Metric(label: goal.kind == .trip ? "Expected at departure" : "Expected at deadline",
+                                   value: goal.money(p.expectedAtDeadline), tint: p.expectedAtDeadline >= p.target ? Theme.accent : Theme.ink)
+                            Metric(label: p.shortfall > 0 ? "Shortfall" : "Surplus",
+                                   value: goal.money(p.shortfall > 0 ? p.shortfall : p.surplus), tint: p.shortfall > 0 ? Theme.warning : Theme.ink)
+                        }
+                    }
+                }.padding(.top, 10)
+            } label: { Text("Plan details").font(.subheadline.weight(.medium)).foregroundStyle(Theme.ink) }
+            .tint(Theme.inkSecondary)
         }
+        .surface()
     }
 
     private func estimateTint(_ p: SavingsPlan) -> Color {

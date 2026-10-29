@@ -35,9 +35,9 @@ struct BudgetView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     monthSelector
-                    if hasBudget { overview.card().entrance(0); limitsSection.card().entrance(1) }
+                    if hasBudget { overview.surface().entrance(0); limitsSection.surface().entrance(1) }
                     else { emptyBudget }
-                    plannedSection.card().entrance(2)
+                    plannedSection.surface().entrance(2)
                 }
                 .padding(.horizontal, Theme.gutter).padding(.bottom, 32)
             }
@@ -92,35 +92,30 @@ struct BudgetView: View {
 
     private var overview: some View {
         let s = summary
-        let tint = color(for: s.state ?? .ok)
-        return VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Spent").font(.footnote).foregroundStyle(Theme.inkSecondary)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(Money.format(s.spent)).font(.figure(34, weight: .light)).foregroundStyle(Theme.ink)
-                        .contentTransition(.numericText())
-                    Text("of \(Money.format(s.total ?? 0))").font(.subheadline).foregroundStyle(Theme.inkSecondary)
-                }
+        let tint = ProgressTone.tint(s.fraction ?? 0)
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.overBy > 0 ? "Over budget by" : "Left to spend").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                Text(Money.format(s.overBy > 0 ? s.overBy : (s.remaining ?? 0)))
+                    .font(.figure(36, weight: .semibold)).foregroundStyle(s.overBy > 0 ? Theme.danger : Theme.ink)
+                    .lineLimit(1).minimumScaleFactor(0.6).contentTransition(.numericText())
             }
-            ProgressLine(value: s.fraction ?? 0, tint: tint, height: 6)
-            HStack(alignment: .top, spacing: 16) {
-                if s.overBy > 0 {
-                    Metric(label: "Over budget", value: Money.format(s.overBy), tint: Theme.danger)
-                } else {
-                    Metric(label: "Remaining", value: Money.format(s.remaining ?? 0))
-                }
-                Metric(label: "Used", value: "\(Int(((s.fraction ?? 0) * 100).rounded()))%", tint: (s.state == .over || s.state == .warning) ? tint : Theme.ink)
-                if let a = s.dailyAllowance {
-                    Metric(label: "Daily allowance", value: Money.format(a), footnote: "\(s.daysLeft) \(s.daysLeft == 1 ? "day" : "days") left")
-                } else {
-                    Metric(label: "Daily allowance", value: "—", footnote: month < current ? "Month ended" : nil)
-                }
+            ProgressLine(value: s.fraction ?? 0, tint: tint, height: 8)
+            HStack {
+                Text("\(Money.format(s.spent)) spent of \(Money.format(s.total ?? 0))").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                Spacer()
+                Text("\(Int(((s.fraction ?? 0) * 100).rounded()))% used").font(.footnote.weight(.medium)).foregroundStyle(s.state == .ok ? Theme.inkSecondary : tint)
+            }
+            if let a = s.dailyAllowance {
+                Text("About \(Money.format(a)) a day for the \(s.daysLeft) \(s.daysLeft == 1 ? "day" : "days") left.").font(.footnote).foregroundStyle(Theme.inkSecondary)
             }
             if s.state == .over {
                 Callout(text: "You’re \(Money.format(s.overBy)) over the \(month.shortTitle()) budget.", tone: .danger)
             } else if s.state == .warning {
-                Callout(text: "\(Int(((s.fraction ?? 0) * 100).rounded()))% of the budget is used. About \(Money.format(s.dailyAllowance ?? 0)) a day keeps you within it.", tone: .warning)
+                Callout(text: "\(Int(((s.fraction ?? 0) * 100).rounded()))% of the budget is used.", tone: .warning)
             }
+            Text("Counts real transactions only. Transfers, planned expenses and goal money are not spending.")
+                .font(.caption).foregroundStyle(Theme.inkTertiary)
             if explicitTotal == nil, !s.lines.isEmpty {
                 Text("Total is the sum of your category limits. Set a monthly total to budget beyond them.")
                     .font(.caption).foregroundStyle(Theme.inkTertiary)
@@ -133,14 +128,15 @@ struct BudgetView: View {
     private var limitsSection: some View {
         let s = summary
         return VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(title: "Category limits", trailing: "Add") { limitSheet = LimitTarget(limit: nil) }
+            SectionTitle(title: "Categories", trailing: "Add limit") { limitSheet = LimitTarget(limit: nil) }
                 .padding(.bottom, 6)
             if s.lines.isEmpty {
                 Text("No category limits for this month yet.").font(.subheadline).foregroundStyle(Theme.inkSecondary).padding(.vertical, 8)
             }
             ForEach(Array(s.lines.enumerated()), id: \.element.id) { i, line in
-                Button {
-                    limitSheet = LimitTarget(limit: limits.first { $0.monthKey == month.string && $0.category == line.category })
+                NavigationLink {
+                    CategoryBudgetDetail(month: month, line: line, symbol: categories.symbol(for: line.category), transactions: reported,
+                                         limit: limits.first { $0.monthKey == month.string && $0.category == line.category })
                 } label: { LimitRow(line: line, symbol: categories.symbol(for: line.category), allowance: s.dailyAllowance(for: line)) }
                     .buttonStyle(PressableStyle())
                 if i < s.lines.count - 1 { Hairline() }
@@ -171,7 +167,7 @@ struct BudgetView: View {
     private var plannedSection: some View {
         let upcoming = FinanceEngine.upcoming(planned)
         return VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(title: "Planned expenses", trailing: "Add") { plannedSheet = PlannedTarget(expense: nil) }
+            SectionTitle(title: "Planned expenses", trailing: "Add") { plannedSheet = PlannedTarget(expense: nil) }
                 .padding(.bottom, 6)
             if upcoming.isEmpty {
                 Text("Bills and purchases you know are coming. Mark one paid to record it as an expense.")
@@ -215,6 +211,64 @@ struct BudgetView: View {
     }
 }
 
+/// A category's month: the limit, what was spent, last month for comparison, and the real transactions behind the total.
+struct CategoryBudgetDetail: View {
+    let month: MonthKey
+    let line: BudgetLine
+    let symbol: String
+    let transactions: [TransactionRecord]
+    let limit: BudgetLimit?
+    @Query(sort: \Account.sortOrder) private var accounts: [Account]
+    @Query(sort: \MoneyCategory.sortOrder) private var categories: [MoneyCategory]
+    @State private var editing = false
+
+    private var mine: [TransactionRecord] {
+        transactions.filter { $0.kind == .expense && $0.category == line.category && MonthKey($0.date) == month }.sorted { $0.date > $1.date }
+    }
+    private var previousSpent: Int {
+        transactions.filter { $0.kind == .expense && $0.category == line.category && MonthKey($0.date) == month.adding(-1) }.reduce(0) { $0 + $1.amountCents }
+    }
+
+    var body: some View {
+        let tint = ProgressTone.tint(line.spent > line.limit ? 1.01 : line.fraction)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(line.overBy > 0 ? "Over by" : "Left").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                    Text(Money.format(line.overBy > 0 ? line.overBy : line.remaining)).font(.figure(36, weight: .semibold))
+                        .foregroundStyle(line.overBy > 0 ? Theme.danger : Theme.ink)
+                    ProgressLine(value: line.fraction, tint: tint, height: 8)
+                    HStack {
+                        Text("\(Money.format(line.spent)) of \(Money.format(line.limit))").font(.footnote).foregroundStyle(Theme.inkSecondary)
+                        Spacer()
+                        Text("\(Int((line.fraction * 100).rounded()))%").font(.footnote.weight(.medium)).foregroundStyle(tint)
+                    }
+                }.surface()
+                StatStrip(items: [
+                    .init(label: "This month", value: Money.format(line.spent)),
+                    .init(label: "Last month", value: Money.format(previousSpent)),
+                    .init(label: "Change", value: previousSpent == 0 ? "—" : Money.format(line.spent - previousSpent, signed: true),
+                          tint: line.spent > previousSpent ? Theme.warning : Theme.ink)
+                ]).surface()
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionTitle(title: "Transactions behind this total").padding(.bottom, 2)
+                    if mine.isEmpty { Text("Nothing recorded in \(month.title()).").font(.subheadline).foregroundStyle(Theme.inkSecondary).padding(.vertical, 8) }
+                    ForEach(Array(mine.enumerated()), id: \.element.id) { i, t in
+                        TransactionRow(tx: t, symbol: symbol, directory: AccountDirectory(accounts)).padding(.vertical, 6)
+                        if i < mine.count - 1 { Hairline() }
+                    }
+                }
+                Button { editing = true } label: { Label(limit == nil ? "Set a limit" : "Adjust limit", systemImage: "slider.horizontal.3") }
+                    .buttonStyle(PrimaryButtonStyle()).disabled(limit == nil && false)
+            }
+            .padding(.horizontal, Theme.gutter).padding(.top, 4).padding(.bottom, 40)
+        }
+        .monoScreen()
+        .navigationTitle(line.category).navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $editing) { LimitSheet(month: month, editing: limit) }
+    }
+}
+
 struct LimitTarget: Identifiable { let id = UUID(); let limit: BudgetLimit? }
 struct PlannedTarget: Identifiable { let id = UUID(); let expense: PlannedExpense? }
 
@@ -224,7 +278,7 @@ struct LimitRow: View {
     let allowance: Int?
 
     var body: some View {
-        let tint: Color = line.state == .over ? Theme.danger : line.state == .warning ? Theme.warning : Theme.accent
+        let tint: Color = ProgressTone.tint(line.spent > line.limit ? 1.01 : line.fraction)
         VStack(spacing: 8) {
             HStack(spacing: 12) {
                 CategoryGlyph(symbol: symbol, tint: tint)
@@ -238,12 +292,10 @@ struct LimitRow: View {
                     if line.overBy > 0 {
                         Text("\(Money.format(line.overBy)) over").font(.figure(14)).foregroundStyle(Theme.danger)
                     } else {
-                        Text("\(Money.format(line.remaining)) left").font(.figure(14)).foregroundStyle(Theme.ink)
-                    }
-                    if let a = allowance, line.overBy == 0 {
-                        Text("\(Money.format(a))/day").font(.caption).foregroundStyle(Theme.inkTertiary)
+                        Text("\(Money.format(line.remaining)) left").font(.figure(14)).foregroundStyle(line.state == .warning ? Theme.warning : Theme.ink)
                     }
                 }
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.inkTertiary)
             }
             ProgressLine(value: line.fraction, tint: tint)
         }

@@ -41,7 +41,7 @@ struct GoalsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 24) {
                     if goals.isEmpty {
                         EmptyState(symbol: "flag", title: "No goals yet",
                                    message: "Plan a trip or save for something specific. Money you move into a goal leaves your available cash, so nothing is counted twice.",
@@ -74,10 +74,12 @@ struct GoalsView: View {
 
     private var header: some View {
         let saved = Books(accounts: accounts, rates: rates, transactions: [], entries: []).savedTotal(goals: goals, entries: entries)
+        let active = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }.count
         return VStack(alignment: .leading, spacing: 4) {
-            Text("Saved across goals").font(.footnote).foregroundStyle(Theme.inkSecondary)
-            Text(Money.format(saved.total)).font(.figure(34, weight: .light)).foregroundStyle(Theme.ink)
+            Text("Set aside across \(active) \(active == 1 ? "goal" : "goals")").font(.footnote).foregroundStyle(Theme.inkSecondary)
+            Text(Money.format(saved.total)).font(.figure(34, weight: .semibold)).foregroundStyle(Theme.ink)
                 .contentTransition(.numericText())
+            Text("An allocation inside MONO. Nothing moves between bank accounts.").font(.caption).foregroundStyle(Theme.inkTertiary)
             if !saved.unconverted.isEmpty {
                 Text("\(saved.unconverted.joined(separator: ", ")) isn’t included: no exchange rate yet.").font(.caption).foregroundStyle(Theme.warning)
             }
@@ -85,12 +87,16 @@ struct GoalsView: View {
     }
 
     private func section(_ title: String, _ list: [SavingsGoal]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: title)
-            ForEach(list) { g in
-                NavigationLink(value: g) { GoalRow(goal: g, costs: costs, entries: entries).card() }
-                    .buttonStyle(PressableStyle())
+        VStack(alignment: .leading, spacing: 4) {
+            SectionTitle(title: title)
+            VStack(spacing: 0) {
+                ForEach(Array(list.enumerated()), id: \.element.id) { i, g in
+                    NavigationLink(value: g) { GoalRow(goal: g, costs: costs, entries: entries) }
+                        .buttonStyle(PressableStyle())
+                    if i < list.count - 1 { Hairline() }
+                }
             }
+            .padding(.horizontal, 16).surface(padding: 0)
         }
     }
 }
@@ -102,41 +108,28 @@ struct GoalRow: View {
 
     var body: some View {
         let plan = SavingsPlanner.plan(for: goal, costs: costs, entries: entries)
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                CategoryGlyph(symbol: goal.kind == .trip ? "airplane" : goal.symbol)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(goal.name).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
-                    Text(subtitle(plan)).font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
-                    if !goal.details.isEmpty { Text(goal.details).font(.caption).foregroundStyle(Theme.inkTertiary).lineLimit(1) }
-                }
-                Spacer(minLength: 6)
-                if goal.priority == .high { Image(systemName: "exclamationmark.circle.fill").font(.footnote).foregroundStyle(Theme.warning).accessibilityLabel("High priority") }
-                StatusChip(text: plan.statusText, tint: plan.statusTint)
-            }
-            ProgressLine(value: plan.percentFunded, tint: plan.status == .overdue ? Theme.danger : Theme.accent)
-            HStack {
-                Text(goal.money(plan.saved)).font(.figure(15)).foregroundStyle(Theme.ink)
-                Text("of \(goal.money(plan.target))").font(.footnote).foregroundStyle(Theme.inkSecondary)
-                Spacer()
-                Text("\(Int((plan.percentFunded * 100).rounded()))%").font(.figure(13)).foregroundStyle(Theme.inkSecondary)
-            }
-            if let r = plan.requiredMonthly, plan.status != .funded {
-                Text("\(goal.money(r)) each \(goal.frequency.noun) needed · \(plan.contributionsRemaining) \(plan.contributionsRemaining == 1 ? "contribution" : "contributions") left")
-                    .font(.footnote).foregroundStyle(Theme.inkSecondary)
-            }
-            if plan.status != .funded, let est = plan.estimatedCompletion {
-                Text("Estimated \(est.formatted(.dateTime.day().month(.abbreviated).year())) · \(plan.estimateBasis == .plan ? "at your plan" : "at your recent pace")")
-                    .font(.caption).foregroundStyle(Theme.inkSecondary)
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        ProgressRow(symbol: goal.kind == .trip ? "airplane" : goal.symbol, title: goal.name,
+                    subtitle: "\(goal.money(plan.saved)) of \(goal.money(plan.target))",
+                    trailing: "\(Int((plan.percentFunded * 100).rounded()))%", value: plan.percentFunded,
+                    tint: plan.status == .overdue ? Theme.danger : plan.status == .behind ? Theme.warning : Theme.accent,
+                    note: goal.progressNote(plan), noteTint: plan.status == .behind ? Theme.warning : plan.status == .overdue ? Theme.danger : Theme.inkSecondary)
+            .contentShape(Rectangle())
     }
+}
 
-    private func subtitle(_ plan: SavingsPlan) -> String {
+extension SavingsGoal {
+    /// "Behind plan · RM 750 each month needed · by 29 Jun 2027": status, the ask, and the date, in one line.
+    func progressNote(_ plan: SavingsPlan) -> String? {
         var parts: [String] = []
-        if let d = goal.deadline { parts.append(goal.kind == .trip ? "Departs \(d.short)" : "By \(d.short)") }
-        return parts.isEmpty ? (goal.kind == .trip ? goal.destination : "Open-ended") : parts.joined(separator: " · ")
+        switch plan.status {
+        case .funded: parts.append("Funded")
+        case .behind: parts.append("Behind plan")
+        case .overdue: parts.append("Past its date")
+        case .onTrack: parts.append("On track")
+        case .open: break
+        }
+        if plan.status != .funded, let r = plan.requiredMonthly { parts.append("\(money(r)) each \(frequency.noun) needed") }
+        if let d = deadline { parts.append(kind == .trip ? "departs \(d.short)" : "by \(d.short)") }
+        return parts.isEmpty ? (details.isEmpty ? nil : details) : parts.joined(separator: " · ")
     }
 }
