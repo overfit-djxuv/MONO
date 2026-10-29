@@ -11,15 +11,17 @@ enum Ledger {
         case sameAccount
         case archivedAccount
         case transferAmountMismatch
+        case cancelledPayment
 
         var errorDescription: String? {
             switch self {
-            case .alreadyRecorded: "This has already been recorded as an expense."
+            case .alreadyRecorded: "This has already been recorded."
             case .invalidAmount: "Enter an amount greater than zero."
             case .insufficientGoalBalance: "That is more than the goal currently holds."
             case .sameAccount: "Choose two different accounts."
             case .archivedAccount: "That account is archived. Choose another one."
             case .transferAmountMismatch: "Both accounts use the same currency, so the amount received must equal the amount sent."
+            case .cancelledPayment: "This payment is cancelled. Restart it first."
             }
         }
     }
@@ -130,44 +132,79 @@ enum Ledger {
         return copy
     }
 
-    // MARK: Recurring
+    // MARK: Subscriptions and recurring payments
 
-    static let maxRecurringCatchUpMonths = 36
-
-    /// The first month a new rule should post in: this month if its day hasn't passed, otherwise next month.
-    /// A new rule never back-dates, so adding one can't silently change past balances.
-    static func firstDueMonth(day: Int, now: Date = .now, calendar: Calendar = .current) -> MonthKey {
-        let today = calendar.component(.day, from: now)
-        let cur = MonthKey(now, calendar: calendar)
-        return day >= today ? cur : cur.adding(1)
-    }
-
-    static func occurrence(of rule: RecurringRule, in month: MonthKey, calendar: Calendar = .current) -> Date {
-        calendar.date(from: DateComponents(year: month.year, month: month.month, day: rule.dayOfMonth)) ?? month.start(calendar: calendar)
-    }
-
-    /// Posts every occurrence that has come due since the last run (the app may not have opened for weeks).
-    /// Each rule advances in the same save as its transactions, so running twice never duplicates.
+    /// Records one due payment as a real transaction. This is the ONLY way a schedule creates money movement: nothing is
+    /// deducted until you confirm. The occurrence key makes confirming the same payment twice impossible, and the schedule moves
+    /// to the next payment only if the save succeeds.
     @discardableResult
-    static func postDueRecurring(_ rules: [RecurringRule], in context: ModelContext,
-                                 now: Date = .now, calendar: Calendar = .current) throws -> Int {
-        var posted = 0
-        for rule in rules where rule.isActive && rule.amountCents > 0 {
-            guard var month = MonthKey(string: rule.nextMonthKey) else { continue }
-            var guardCount = 0
-            while guardCount < maxRecurringCatchUpMonths {
-                let when = occurrence(of: rule, in: month, calendar: calendar)
-                guard when <= now else { break }
-                context.insert(TransactionRecord(amountCents: rule.amountCents, kind: rule.kind, category: rule.category,
-                                                 date: when, title: rule.title, notes: "Recurring"))
-                month = month.adding(1)
-                guardCount += 1
-                posted += 1
-            }
-            rule.nextMonthKey = month.string
+    static func recordPayment(of rule: RecurringRule, paidOn: Date = .now, amountCents: Int? = nil, accountID: UUID? = nil,
+                              existing: [TransactionRecord], in context: ModelContext, calendar: Calendar = .current) throws -> TransactionRecord {
+        guard !rule.isCancelled else { throw LedgerError.cancelledPayment }
+        let due = rule.dueDate
+        let key = rule.occurrenceKey(for: due, calendar: calendar)
+        guard !existing.contains(where: { $0.occurrenceKey == key }) else { throw LedgerError.alreadyRecorded }
+        let cents = amountCents ?? rule.amountCents
+        guard (1...Money.maxCents).contains(cents) else { throw LedgerError.invalidAmount }
+        let tx = TransactionRecord(amountCents: cents, kind: rule.kind, category: rule.category, date: paidOn, title: rule.title,
+                                   notes: rule.notes, accountID: accountID ?? rule.accountID)
+        tx.occurrenceKey = key
+        context.insert(tx)
+        advance(rule, calendar: calendar)
+        do { try context.save() } catch { context.rollback(); throw error }
+        return tx
+    }
+
+    /// Skips one payment (you didn't pay it, or it was waived): the schedule moves on and no transaction is created.
+    static func skipPayment(of rule: RecurringRule, in context: ModelContext, calendar: Calendar = .current) throws {
+        guard !rule.isCancelled else { throw LedgerError.cancelledPayment }
+        advance(rule, calendar: calendar)
+        try context.save()
+    }
+
+    static func pause(_ rule: RecurringRule, in context: ModelContext) throws {
+        rule.isActive = false
+        try context.save()
+    }
+
+    /// Resumes a paused or cancelled payment from its next occurrence on or after today. Nothing missed in between is owed or recorded.
+    static func resume(_ rule: RecurringRule, today: Date = .now, in context: ModelContext, calendar: Calendar = .current) throws {
+        rule.isCancelled = false
+        rule.isActive = true
+        rule.nextDueDate = SubscriptionSchedule.firstOnOrAfter(today, from: rule.dueDate, unit: rule.unit, interval: rule.interval,
+                                                                anchorDay: rule.anchorDay, calendar: calendar)
+        syncLegacyFields(rule, calendar: calendar)
+        try context.save()
+    }
+
+    /// Cancels a payment. It stays in your list for history, but never comes due again and isn't counted in forecasts.
+    static func cancel(_ rule: RecurringRule, in context: ModelContext) throws {
+        rule.isCancelled = true
+        rule.isActive = false
+        try context.save()
+    }
+
+    private static func advance(_ rule: RecurringRule, calendar: Calendar) {
+        rule.nextDueDate = rule.following(rule.dueDate, calendar: calendar)
+        syncLegacyFields(rule, calendar: calendar)
+    }
+
+    /// Keeps `nextMonthKey` and `dayOfMonth` aligned with the real next date so older code paths still agree.
+    static func syncLegacyFields(_ rule: RecurringRule, calendar: Calendar = .current) {
+        let d = rule.dueDate
+        rule.nextMonthKey = MonthKey(d, calendar: calendar).string
+    }
+
+    /// Fills `nextDueDate` for rules saved before schedules had real dates, and gives them an account. Changes nothing else.
+    @discardableResult
+    static func upgradeLegacyRules(_ rules: [RecurringRule], defaultAccountID: UUID?, in context: ModelContext) throws -> Bool {
+        var changed = false
+        for r in rules {
+            if r.nextDueDate == nil { r.nextDueDate = r.dueDate; changed = true }
+            if r.accountID == nil, let id = defaultAccountID { r.accountID = id; changed = true }
         }
-        if context.hasChanges { try context.save() }
-        return posted
+        if changed { try context.save() }
+        return changed
     }
 
     // MARK: Goals

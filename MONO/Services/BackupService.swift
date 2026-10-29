@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 struct BackupFile: Codable, Equatable {
-    static let currentVersion = 3
+    static let currentVersion = 4
 
     var app = "MONO"
     var version = BackupFile.currentVersion
@@ -38,13 +38,15 @@ struct BackupFile: Codable, Equatable {
     struct RecurringDTO: Codable, Equatable {
         var id: UUID; var title: String; var amountCents: Int; var kind: String; var category: String
         var dayOfMonth: Int; var nextMonthKey: String; var isActive: Bool
+        var unit: String? = nil; var interval: Int? = nil; var nextDueDate: Date? = nil; var isCancelled: Bool? = nil
+        var notes: String? = nil; var accountID: UUID? = nil; var remindDaysBefore: Int? = nil
     }
     struct CategoryDTO: Codable, Equatable { var name, symbol, kind: String; var isDefault: Bool; var sortOrder: Int; var isEssential: Bool? = nil }
     struct TransactionDTO: Codable, Equatable {
         var id: UUID; var amountCents: Int; var kind: String; var category: String
         var date: Date; var title: String; var notes: String; var sourceID: UUID?
         var accountID: UUID? = nil; var toAccountID: UUID? = nil; var toAmountCents: Int? = nil
-        var merchant: String? = nil; var tags: String? = nil
+        var merchant: String? = nil; var tags: String? = nil; var occurrenceKey: String? = nil
     }
     struct MonthBudgetDTO: Codable, Equatable { var monthKey: String; var totalCents: Int }
     struct BudgetLimitDTO: Codable, Equatable { var monthKey, category: String; var limitCents: Int }
@@ -107,7 +109,7 @@ enum BackupService {
             .map { .init(id: $0.id, amountCents: $0.amountCents, kind: $0.kindRaw, category: $0.category,
                          date: $0.date, title: $0.title, notes: $0.notes, sourceID: $0.sourceID,
                          accountID: $0.accountID, toAccountID: $0.toAccountID, toAmountCents: $0.toAmountCents,
-                         merchant: $0.merchant, tags: $0.tags) }
+                         merchant: $0.merchant, tags: $0.tags, occurrenceKey: $0.occurrenceKey) }
         f.monthBudgets = try context.fetch(FetchDescriptor<MonthBudget>()).map { .init(monthKey: $0.monthKey, totalCents: $0.totalCents) }
         f.budgetLimits = try context.fetch(FetchDescriptor<BudgetLimit>())
             .map { .init(monthKey: $0.monthKey, category: $0.category, limitCents: $0.limitCents) }
@@ -133,7 +135,9 @@ enum BackupService {
             .map { .init(id: $0.id, goalID: $0.goalID, category: $0.categoryRaw, label: $0.label, amountCents: $0.amountCents) }
         f.recurringRules = try context.fetch(FetchDescriptor<RecurringRule>())
             .map { .init(id: $0.id, title: $0.title, amountCents: $0.amountCents, kind: $0.kindRaw, category: $0.category,
-                         dayOfMonth: $0.dayOfMonth, nextMonthKey: $0.nextMonthKey, isActive: $0.isActive) }
+                         dayOfMonth: $0.dayOfMonth, nextMonthKey: $0.nextMonthKey, isActive: $0.isActive,
+                         unit: $0.unitRaw, interval: $0.interval, nextDueDate: $0.nextDueDate, isCancelled: $0.isCancelled,
+                         notes: $0.notes, accountID: $0.accountID, remindDaysBefore: $0.remindDaysBefore) }
         f.accounts = try context.fetch(FetchDescriptor<Account>(sortBy: [SortDescriptor(\.sortOrder)]))
             .map { .init(id: $0.id, name: $0.name, kind: $0.kindRaw, currencyCode: $0.currencyCode, openingCents: $0.openingCents,
                          sortOrder: $0.sortOrder, isArchived: $0.isArchived, createdAt: $0.createdAt) }
@@ -247,11 +251,15 @@ enum BackupService {
         }
         for e in f.goalEntries { if let a = e.accountAmountCents, abs(a) > cap { throw fail("contribution out of range") } }
         for r in f.reservedFunds ?? [] { guard (0...cap).contains(r.amountCents), !r.name.isEmpty else { throw fail("invalid reserved fund") } }
+        let keys = f.transactions.compactMap(\.occurrenceKey).filter { !$0.isEmpty }
+        guard Set(keys).count == keys.count else { throw fail("the same scheduled payment is recorded twice") }
         let ruleIDs = (f.recurringRules ?? []).map(\.id)
         guard Set(ruleIDs).count == ruleIDs.count else { throw fail("duplicate recurring ids") }
         for r in f.recurringRules ?? [] {
-            guard TxKind(rawValue: r.kind) != nil, (1...cap).contains(r.amountCents), (1...28).contains(r.dayOfMonth),
-                  MonthKey(string: r.nextMonthKey) != nil else { throw fail("invalid recurring transaction “\(r.title)”") }
+            guard TxKind(rawValue: r.kind) != nil, (1...cap).contains(r.amountCents), (1...31).contains(r.dayOfMonth),
+                  MonthKey(string: r.nextMonthKey) != nil,
+                  r.unit.map({ RecurrenceUnit(rawValue: $0) != nil }) ?? true, (1...520).contains(r.interval ?? 1),
+                  (0...30).contains(r.remindDaysBefore ?? 1), r.accountID.map({ accountIDs.contains($0) || f.accounts == nil }) ?? true else { throw fail("invalid recurring transaction “\(r.title)”") }
         }
         // Every goal's balance must be non-negative, otherwise the file would invent debt.
         var balances: [UUID: Int] = [:]
@@ -299,6 +307,7 @@ enum BackupService {
                                           sourceID: t.sourceID, id: t.id, accountID: t.accountID,
                                           merchant: t.merchant ?? "", tags: t.tags ?? "")
                 m.toAccountID = t.toAccountID; m.toAmountCents = t.toAmountCents ?? 0
+                m.occurrenceKey = t.occurrenceKey ?? ""
                 context.insert(m)
             }
             for b in f.monthBudgets { context.insert(MonthBudget(monthKey: b.monthKey, totalCents: b.totalCents)) }
@@ -337,9 +346,13 @@ enum BackupService {
                                         label: c.label, amountCents: c.amountCents, id: c.id))
             }
             for r in f.recurringRules ?? [] {
-                context.insert(RecurringRule(title: r.title, amountCents: r.amountCents, kind: TxKind(rawValue: r.kind) ?? .expense,
-                                             category: r.category, dayOfMonth: r.dayOfMonth, nextMonthKey: r.nextMonthKey,
-                                             isActive: r.isActive, id: r.id))
+                let m = RecurringRule(title: r.title, amountCents: r.amountCents, kind: TxKind(rawValue: r.kind) ?? .expense,
+                                      category: r.category, dayOfMonth: r.dayOfMonth, nextMonthKey: r.nextMonthKey,
+                                      isActive: r.isActive, id: r.id)
+                m.unitRaw = r.unit ?? RecurrenceUnit.month.rawValue; m.interval = r.interval ?? 1; m.nextDueDate = r.nextDueDate
+                m.isCancelled = r.isCancelled ?? false; m.notes = r.notes ?? ""; m.accountID = r.accountID
+                m.remindDaysBefore = r.remindDaysBefore ?? 1
+                context.insert(m)
             }
             try context.save()
         } catch {

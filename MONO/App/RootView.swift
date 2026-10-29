@@ -11,6 +11,8 @@ struct RootView: View {
     @State private var errors = ErrorCenter()
     @State private var lock = AppLock()
     @Query private var recurring: [RecurringRule]
+    @Query private var accounts: [Account]
+    @AppStorage(Reminders.hourKey) private var reminderHour = 9
     @Query private var allTx: [TransactionRecord]
     @Query private var planned: [PlannedExpense]
     @Query private var monthBudgets: [MonthBudget]
@@ -65,7 +67,6 @@ struct RootView: View {
             switch new {
             case .background: lock.lockIfEnabled()
             case .active:
-                postRecurring()
                 refreshReminders()
                 refreshBudgetAlert()
                 if lock.isLocked { Task { await lock.unlock() } }
@@ -82,7 +83,6 @@ struct RootView: View {
             DefaultCategories.seedEssentialsIfNeeded(context)
             migrateAccounts()
             if lock.isLocked { await lock.unlock() }
-            postRecurring()
             #if DEBUG
             DemoData.loadIfRequested(context)
             #endif
@@ -94,18 +94,23 @@ extension RootView {
     /// Changes whenever a planned expense is added, edited, paid or removed.
     fileprivate var plannedSignature: [String] {
         planned.map { "\($0.id)|\($0.title)|\($0.amountCents)|\($0.dueDate.timeIntervalSince1970)|\($0.isPaid)" }
+            + ["hour-\(reminderHour)"]
+            + recurring.map { "\($0.id)|\($0.title)|\($0.amountCents)|\($0.dueDate.timeIntervalSince1970)|\($0.status.rawValue)|\($0.remindDaysBefore)|\($0.interval)|\($0.unitRaw)" }
     }
 
     /// Gives every record an account (see AccountMigration). Cheap and idempotent, so it also runs after imports and restores.
     fileprivate func migrateAccounts() {
-        do { try AccountMigration.run(in: context) }
-        catch { errors.report(error, doing: "Couldn’t set up accounts. Your data was not changed") }
+        do {
+            try AccountMigration.run(in: context)
+            // Schedules created before they had real dates get one; nothing is recorded or changed beyond that.
+            try Ledger.upgradeLegacyRules(recurring, defaultAccountID: AccountEngine.defaultAccount((try? context.fetch(FetchDescriptor<Account>())) ?? [])?.id, in: context)
+        } catch { errors.report(error, doing: "Couldn’t set up accounts. Your data was not changed") }
     }
 
     fileprivate func refreshReminders() {
         guard Reminders.isEnabled else { return }
-        let snapshot = planned
-        Task { await Reminders.syncPlanned(snapshot) }
+        let planned = self.planned, rules = recurring, accts = accounts
+        Task { await Reminders.syncPlanned(planned, subscriptions: rules, accounts: accts) }
     }
 
     fileprivate func refreshBudgetAlert() {
@@ -116,11 +121,6 @@ extension RootView {
         if let message = Reminders.checkBudget(summary) { Task { await Reminders.post(budgetMessage: message) } }
     }
 
-    /// Adds any recurring transactions that have come due. Safe to call repeatedly.
-    fileprivate func postRecurring() {
-        do { try Ledger.postDueRecurring(recurring, in: context) }
-        catch { errors.report(error, doing: "Couldn’t add recurring transactions") }
-    }
 }
 
 private struct LockView: View {

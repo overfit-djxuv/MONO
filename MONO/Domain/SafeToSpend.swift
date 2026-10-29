@@ -178,11 +178,14 @@ extension SafeToSpend {
         var commitments = planned.filter { !$0.isPaid }.map {
             Commitment(title: $0.title, amountCents: $0.amountCents, dueDate: $0.dueDate, category: $0.category, source: .planned)
         }
-        // A recurring expense that hasn't posted yet will take money on its day.
-        for r in rules where r.isActive && r.kind == .expense {
-            guard let month = MonthKey(string: r.nextMonthKey) else { continue }
-            let due = Ledger.occurrence(of: r, in: month, calendar: calendar)
-            commitments.append(Commitment(title: r.title, amountCents: r.amountCents, dueDate: due, category: r.category, source: .recurring))
+        // A repeating payment you haven't confirmed yet is still owed: every occurrence up to the horizon counts, overdue ones included.
+        // Paused and cancelled payments owe nothing. Amounts are in the paying account's currency, converted with your rates.
+        for r in rules where r.status == .active && r.kind == .expense {
+            let currency = books.account(r.accountID)?.currency ?? Money.reporting
+            guard let amount = books.converter.convert(r.amountCents, from: currency), amount > 0 else { continue }
+            for due in r.dueDates(through: end, calendar: calendar) {
+                commitments.append(Commitment(title: r.title, amountCents: amount, dueDate: due, category: r.category, source: .recurring))
+            }
         }
 
         var goalPlans: [GoalPlan] = []

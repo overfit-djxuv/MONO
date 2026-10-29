@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("lastBackupAt") private var lastBackupAt = 0.0
     @AppStorage(AppLock.enabledKey) private var lockEnabled = false
     @AppStorage(Reminders.enabledKey) private var remindersEnabled = false
+    @AppStorage(Reminders.hourKey) private var reminderHour = 9
     @Query private var planned: [PlannedExpense]
     @Query private var monthBudgets: [MonthBudget]
     @Query private var limits: [BudgetLimit]
@@ -60,8 +61,8 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink("Categories") { CategoriesView() }
-                NavigationLink { RecurringView() } label: {
-                    Label("Recurring transactions", systemImage: "arrow.triangle.2.circlepath")
+                NavigationLink { SubscriptionsView() } label: {
+                    Label("Subscriptions & bills", systemImage: "arrow.triangle.2.circlepath")
                 }
             }
 
@@ -69,8 +70,13 @@ struct SettingsView: View {
                 Toggle(isOn: Binding(get: { remindersEnabled }, set: { setReminders($0) })) {
                     Label("Reminders", systemImage: "bell")
                 }
+                if remindersEnabled {
+                    Picker("Remind me at", selection: $reminderHour) {
+                        ForEach(5...22, id: \.self) { Text(String(format: "%02d:00", $0)).tag($0) }
+                    }
+                }
             } header: { Text("Notifications") } footer: {
-                Text("A nudge the morning before and the day a planned expense is due, and when a month’s budget reaches 80% or goes over. Everything is scheduled on this iPhone.")
+                Text("A nudge before planned expenses and subscriptions are due (each one has its own lead time), and when a month’s budget reaches 80% or goes over. Everything is scheduled on this iPhone.")
             }
 
             Section {

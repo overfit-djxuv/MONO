@@ -5,6 +5,11 @@ struct ToolsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
+                NavigationLink { SubscriptionsView() } label: {
+                    ToolRow(symbol: "arrow.triangle.2.circlepath", title: "Subscriptions & bills",
+                            detail: "Everything that repeats, what it costs, and what’s due. Nothing is deducted until you confirm.")
+                }
+                .buttonStyle(PressableStyle())
                 NavigationLink { SafeToSpendView() } label: {
                     ToolRow(symbol: "shield.lefthalf.filled", title: "Safe to spend",
                             detail: "What you can spend without touching bills, savings or essentials.")

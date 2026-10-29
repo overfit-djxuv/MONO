@@ -332,25 +332,40 @@ struct OverviewView: View {
         }
     }
 
+    /// Planned expenses and the next payments of your active subscriptions, soonest first.
+    private struct UpcomingItem: Identifiable {
+        let id: String; let title: String; let date: Date; let category: String; let amount: String; let isSubscription: Bool
+    }
+
     private var upcoming: some View {
-        let list = Array(FinanceEngine.upcoming(planned).prefix(3))
+        let dir = AccountDirectory(accounts)
+        let horizon = Calendar.current.date(byAdding: .day, value: 14, to: .now) ?? .now
+        let plannedItems = FinanceEngine.upcoming(planned).map {
+            UpcomingItem(id: "p-\($0.id)", title: $0.title, date: $0.dueDate, category: $0.category, amount: Money.format($0.amountCents), isSubscription: false)
+        }
+        let subs = rules.filter { $0.status == .active && $0.kind == .expense && $0.dueDate <= horizon }.map {
+            UpcomingItem(id: "s-\($0.id)", title: $0.title, date: $0.dueDate, category: $0.category,
+                         amount: Money.format($0.amountCents, currency: dir.account($0.accountID)?.currency), isSubscription: true)
+        }
+        let list = Array((plannedItems + subs).sorted { $0.date < $1.date }.prefix(4))
         return VStack(alignment: .leading, spacing: 4) {
             SectionHeader(title: "Upcoming", trailing: "Manage") { tab = .budget }.padding(.bottom, 6)
             if list.isEmpty {
-                Text("No planned expenses. Add bills or purchases you know are coming in Budget.")
+                Text("Nothing due soon. Add bills in Budget, or subscriptions in Tools.")
                     .font(.subheadline).foregroundStyle(Theme.inkSecondary)
             }
             ForEach(Array(list.enumerated()), id: \.element.id) { i, p in
-                let overdue = p.dueDate < Calendar.current.startOfDay(for: .now)
+                let overdue = p.date < Calendar.current.startOfDay(for: .now)
                 HStack(spacing: 12) {
-                    CategoryGlyph(symbol: categories.symbol(for: p.category), tint: overdue ? Theme.warning : Theme.inkSecondary)
+                    CategoryGlyph(symbol: p.isSubscription ? "arrow.triangle.2.circlepath" : categories.symbol(for: p.category),
+                                  tint: overdue ? Theme.warning : Theme.inkSecondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(p.title).font(.body).foregroundStyle(Theme.ink).lineLimit(1)
-                        Text(overdue ? "Overdue · \(p.dueDate.short)" : "Due \(p.dueDate.short)")
+                        Text("\(overdue ? "Overdue" : "Due") \(p.date.short)\(p.isSubscription ? " · subscription" : "")")
                             .font(.caption).foregroundStyle(overdue ? Theme.warning : Theme.inkSecondary)
                     }
                     Spacer()
-                    Text(Money.format(p.amountCents)).font(.figure(15)).foregroundStyle(Theme.ink)
+                    Text(p.amount).font(.figure(15)).foregroundStyle(Theme.ink)
                 }
                 .padding(.vertical, 8)
                 .accessibilityElement(children: .combine)

@@ -256,7 +256,7 @@ final class BackupV3Tests: XCTestCase {
         src.insert(ReservedFund(name: "Buffer", amountCents: 100_000, isActive: false))
         try src.save()
         let file = try BackupService.decode(try BackupService.encode(try BackupService.snapshot(context: src, openingBalanceCents: 0, currencySymbol: "RM")))
-        XCTAssertEqual(file.version, 3)
+        XCTAssertEqual(file.version, BackupFile.currentVersion)
         let (_, dst) = try makeContext()
         try BackupService.replaceAll(with: file, in: dst)
         let g = try XCTUnwrap(try dst.fetch(FetchDescriptor<SavingsGoal>()).first)

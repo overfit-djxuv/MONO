@@ -5,7 +5,12 @@ import UserNotifications
 /// Local notifications only: nothing leaves the phone and no push entitlement is needed.
 enum Reminders {
     static let enabledKey = "remindersEnabled"
-    static let maxPlanned = 25   // iOS keeps at most 64 pending requests; two per expense
+    static let maxPlanned = 15   // iOS keeps at most 64 pending requests; planned expenses use two each, subscriptions up to two occurrences each
+    static let maxSubscriptions = 12
+    static let hourKey = "reminderHour"
+
+    /// The time of day reminders arrive (default 9:00). You can change it in Settings.
+    static var hour: Int { let h = UserDefaults.standard.object(forKey: hourKey) as? Int ?? 9; return min(max(h, 0), 23) }
 
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
 
@@ -28,8 +33,9 @@ enum Reminders {
     }
 
     /// One reminder the morning before and one on the day, for unpaid expenses that haven't passed.
-    static func plannedReminders(_ planned: [PlannedExpense], now: Date = .now, hour: Int = 9,
+    static func plannedReminders(_ planned: [PlannedExpense], now: Date = .now, hour: Int? = nil,
                                  calendar: Calendar = .current) -> [Pending] {
+        let hour = hour ?? Self.hour
         let today = calendar.startOfDay(for: now)
         var out: [Pending] = []
         for p in planned.filter({ !$0.isPaid && calendar.startOfDay(for: $0.dueDate) >= today })
@@ -51,13 +57,47 @@ enum Reminders {
         return out
     }
 
-    /// Replaces every scheduled planned-expense reminder so edits, payments and deletions are always reflected.
-    static func syncPlanned(_ planned: [PlannedExpense]) async {
+    /// Reminders for subscriptions and bills: the next two payments of each active one, `remindDaysBefore` days ahead at the chosen time.
+    /// Text follows Hide amounts. Nothing here records or deducts anything.
+    static func subscriptionReminders(_ rules: [RecurringRule], now: Date = .now, hour: Int? = nil, defaultCurrency: (RecurringRule) -> Currency = { _ in Money.reporting },
+                                      calendar: Calendar = .current) -> [Pending] {
+        let hour = hour ?? Self.hour
+        var out: [Pending] = []
+        for r in rules.filter({ $0.status == .active && $0.kind == .expense }).sorted(by: { $0.dueDate < $1.dueDate }).prefix(maxSubscriptions) {
+            var due = calendar.startOfDay(for: r.dueDate)
+            var scheduled = 0, guardCount = 0
+            while scheduled < 2 && guardCount < 6 {
+                guardCount += 1
+                let lead = max(r.remindDaysBefore, 0)
+                if let day = calendar.date(byAdding: .day, value: -lead, to: due) {
+                    var comps = calendar.dateComponents([.year, .month, .day], from: day); comps.hour = hour
+                    if let fire = calendar.date(from: comps), fire > now {
+                        let when = lead == 0 ? "is due today" : (lead == 1 ? "is due tomorrow" : "is due in \(lead) days")
+                        out.append(Pending(id: "sub-\(r.id.uuidString)-\(calendar.component(.year, from: due))\(calendar.component(.month, from: due))\(calendar.component(.day, from: due))",
+                                           title: r.title.isEmpty ? "Payment due" : r.title,
+                                           body: "\(Money.format(r.amountCents, currency: defaultCurrency(r))) \(when). Open MONO to confirm it when you’ve paid.",
+                                           fire: comps))
+                        scheduled += 1
+                    }
+                }
+                due = r.following(due, calendar: calendar)
+            }
+        }
+        return out
+    }
+
+    /// Replaces every scheduled reminder so edits, payments and deletions are always reflected.
+    static func syncPlanned(_ planned: [PlannedExpense], subscriptions: [RecurringRule] = [], accounts: [Account] = []) async {
         let center = UNUserNotificationCenter.current()
-        let existing = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix("planned-") }
+        let existing = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix("planned-") || $0.hasPrefix("sub-") }
         center.removePendingNotificationRequests(withIdentifiers: existing)
         guard isEnabled, await isAuthorized() else { return }
-        for r in plannedReminders(planned) {
+        let byID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+        let defaultID = AccountEngine.defaultAccount(accounts)?.id
+        let all = plannedReminders(planned) + subscriptionReminders(subscriptions) { rule in
+            (rule.accountID ?? defaultID).flatMap { byID[$0] }?.currency ?? Money.reporting
+        }
+        for r in all {
             let content = UNMutableNotificationContent()
             content.title = r.title; content.body = r.body; content.sound = .default
             let trigger = UNCalendarNotificationTrigger(dateMatching: r.fire, repeats: false)

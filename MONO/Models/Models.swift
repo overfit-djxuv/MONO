@@ -52,6 +52,19 @@ enum ContributionFrequency: String, Codable, CaseIterable, Identifiable {
     var stepDays: Int? { switch self { case .weekly: 7; case .biweekly: 14; case .monthly: nil } }
 }
 
+/// The unit a recurring payment repeats in. "Every 3 months" is unit `.month`, interval 3.
+enum RecurrenceUnit: String, Codable, CaseIterable, Identifiable {
+    case week, month, year
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
+enum PaymentStatus: String, CaseIterable, Identifiable {
+    case active, paused, cancelled
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
 enum GoalKind: String, Codable, CaseIterable, Identifiable {
     case trip, general
     var id: String { rawValue }
@@ -115,6 +128,9 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var merchant: String = ""
     /// Comma-separated, lower-case tags.
     var tags: String = ""
+    /// Set when this transaction records a scheduled payment: "<rule id>|<due date>". One key can exist only once,
+    /// which is how confirming the same payment twice is prevented. Empty for ordinary transactions.
+    var occurrenceKey: String = ""
 
     init(amountCents: Int, kind: TxKind, category: String, date: Date, title: String,
          notes: String = "", sourceID: UUID? = nil, id: UUID = UUID(),
@@ -306,17 +322,30 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
 
 /// A monthly income or expense that posts itself as a normal transaction on its day.
 /// Deleting a posted transaction never re-posts it: progress is tracked by `nextMonthKey`, not by looking for records.
+/// A subscription, bill or other repeating payment (or income). It is a SCHEDULE, not a transaction: nothing is recorded or deducted
+/// until you confirm a payment, and each confirmed occurrence becomes an ordinary transaction.
 @Model final class RecurringRule {
     var id: UUID = UUID()
     var title: String = ""
     var amountCents: Int = 0
     var kindRaw: String = TxKind.expense.rawValue
     var category: String = ""
-    /// Day of month (1–28) on which the transaction posts.
+    /// The day of the month the payment falls on (1–31, clamped to the month's length). Anchors monthly and yearly schedules.
     var dayOfMonth: Int = 1
-    /// The next month (`yyyy-MM`) that has not been posted yet.
+    /// Kept in step with `nextDueDate` for older code paths.
     var nextMonthKey: String = ""
+    /// False while paused or cancelled.
     var isActive: Bool = true
+    var unitRaw: String = RecurrenceUnit.month.rawValue
+    var interval: Int = 1
+    /// The next payment that has not been confirmed. nil only on rules made before this field existed (filled in at launch).
+    var nextDueDate: Date? = nil
+    var isCancelled: Bool = false
+    var notes: String = ""
+    /// The account that pays (or receives). Amounts are in that account's currency. nil means the default account.
+    var accountID: UUID? = nil
+    /// How many days before the due date to remind (0 = on the day).
+    var remindDaysBefore: Int = 1
 
     init(title: String, amountCents: Int, kind: TxKind, category: String, dayOfMonth: Int,
          nextMonthKey: String, isActive: Bool = true, id: UUID = UUID()) {
@@ -333,6 +362,18 @@ enum TripCostCategory: String, Codable, CaseIterable, Identifiable {
     var kind: TxKind {
         get { TxKind(rawValue: kindRaw) ?? .expense }
         set { kindRaw = newValue.rawValue }
+    }
+    var unit: RecurrenceUnit {
+        get { RecurrenceUnit(rawValue: unitRaw) ?? .month }
+        set { unitRaw = newValue.rawValue }
+    }
+    var status: PaymentStatus { isCancelled ? .cancelled : (isActive ? .active : .paused) }
+
+    /// When the next unconfirmed payment falls due.
+    var dueDate: Date {
+        if let d = nextDueDate { return d }
+        guard let m = MonthKey(string: nextMonthKey) else { return .now }
+        return Calendar.current.date(from: DateComponents(year: m.year, month: m.month, day: min(max(dayOfMonth, 1), m.daysInMonth()))) ?? .now
     }
 }
 
