@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 
 struct BudgetView: View {
     @Environment(\.modelContext) private var context
@@ -225,6 +226,23 @@ struct CategoryBudgetDetail: View {
     private var mine: [TransactionRecord] {
         transactions.filter { $0.kind == .expense && $0.category == line.category && MonthKey($0.date) == month }.sorted { $0.date > $1.date }
     }
+    @ViewBuilder private var weeklyPattern: some View {
+        let weeks = CategoryWeeks.spend(transactions, category: line.category, month: month)
+        if weeks.contains(where: { $0 > 0 }) {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(title: "By week")
+                Chart(Array(weeks.enumerated()), id: \.offset) { i, cents in
+                    BarMark(x: .value("Week", "Wk \(i + 1)"), y: .value("Spent", Double(cents) / 100))
+                        .foregroundStyle(CategoryWeeks.started(i, month: month) ? Theme.accent : Theme.line)
+                        .cornerRadius(4)
+                }
+                .chartYAxis(.hidden).frame(height: 110).hidesAmounts()
+                .accessibilityLabel("Weekly spending in \(line.category)")
+                Text("Days 1–7, 8–14, 15–21, 22–28 and 29 to the end of the month.").font(.caption).foregroundStyle(Theme.inkTertiary)
+            }.surface()
+        }
+    }
+
     private var previousSpent: Int {
         transactions.filter { $0.kind == .expense && $0.category == line.category && MonthKey($0.date) == month.adding(-1) }.reduce(0) { $0 + $1.amountCents }
     }
@@ -250,6 +268,7 @@ struct CategoryBudgetDetail: View {
                     .init(label: "Change", value: previousSpent == 0 ? "—" : Money.format(line.spent - previousSpent, signed: true),
                           tint: line.spent > previousSpent ? Theme.warning : Theme.ink)
                 ]).surface()
+                weeklyPattern
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle(title: "Transactions behind this total").padding(.bottom, 2)
                     if mine.isEmpty { Text("Nothing recorded in \(month.title()).").font(.subheadline).foregroundStyle(Theme.inkSecondary).padding(.vertical, 8) }

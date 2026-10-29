@@ -37,6 +37,9 @@ struct TransactionsView: View {
     @State private var customFrom = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
     @State private var customTo = Date.now
     @State private var showCustom = false
+    @State private var minAmount: Int?
+    @State private var maxAmount: Int?
+    @State private var showAmount = false
     @State private var detail: TransactionRecord?
     @Query private var receipts: [Receipt]
     @State private var showAdd = false
@@ -47,7 +50,7 @@ struct TransactionsView: View {
     private var directory: AccountDirectory { AccountDirectory(accounts) }
     private var allTags: [String] { Array(Set(txs.flatMap { Tags.list(from: $0.tags) })).sorted() }
     private var filtersActive: Bool {
-        kindFilter != nil || categoryFilter != nil || accountFilter != nil || tagFilter != nil || range != .thisMonth
+        kindFilter != nil || categoryFilter != nil || accountFilter != nil || tagFilter != nil || minAmount != nil || maxAmount != nil || range != .thisMonth
     }
 
     private var filtered: [TransactionRecord] {
@@ -59,6 +62,7 @@ struct TransactionsView: View {
                 && (categoryFilter == nil || t.category == categoryFilter)
                 && (accountFilter == nil || from?.id == accountFilter || to?.id == accountFilter)
                 && (tagFilter == nil || Tags.list(from: t.tags).contains(tagFilter!))
+                && (minAmount == nil || t.amountCents >= minAmount!) && (maxAmount == nil || t.amountCents <= maxAmount!)
                 && (range == .custom ? (Calendar.current.startOfDay(for: customFrom)...Calendar.current.startOfDay(for: customTo).addingTimeInterval(86_399)).contains(t.date) : range.contains(t.date))
                 && (q.isEmpty || t.title.localizedCaseInsensitiveContains(q)
                     || t.category.localizedCaseInsensitiveContains(q)
@@ -119,6 +123,7 @@ struct TransactionsView: View {
             .sheet(item: $editing) { TransactionForm(editing: $0) }
             .csvImport(isPresented: $showCSV)
             .sheet(isPresented: $showCustom) { customRangeSheet }
+            .sheet(isPresented: $showAmount) { amountSheet }
             .confirmationDialog("Delete this transaction?", isPresented: Binding(get: { pendingDelete != nil },
                                                                                  set: { if !$0 { pendingDelete = nil } }),
                                 titleVisibility: .visible, presenting: pendingDelete) { t in
@@ -141,7 +146,7 @@ struct TransactionsView: View {
         return Set(groups.values.filter { $0.count > 1 }.flatMap { $0.map(\.id) })
     }
 
-    private func clearFilters() { kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; range = .thisMonth }
+    private func clearFilters() { kindFilter = nil; categoryFilter = nil; accountFilter = nil; tagFilter = nil; minAmount = nil; maxAmount = nil; range = .thisMonth }
 
     private var list: some View {
         let dupes = duplicateIDs
@@ -227,6 +232,7 @@ struct TransactionsView: View {
             categoryFilter.map { c in (c, { categoryFilter = nil }) },
             accountFilter.flatMap { id in accounts.first { $0.id == id } }.map { a in (a.name, { accountFilter = nil }) },
             tagFilter.map { t in ("#\(t)", { tagFilter = nil }) },
+            amountLabel.map { l in (l, { minAmount = nil; maxAmount = nil }) },
         ].compactMap { $0 }
         if !chips.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -241,6 +247,19 @@ struct TransactionsView: View {
                 }
             }
         }
+    }
+
+    private var amountLabel: String? {
+        switch (minAmount, maxAmount) {
+        case (nil, nil): nil
+        case (let a?, nil): "From \(Money.format(a))"
+        case (nil, let b?): "Up to \(Money.format(b))"
+        case (let a?, let b?): "\(Money.format(a)) to \(Money.format(b))"
+        }
+    }
+
+    private var amountSheet: some View {
+        AmountRangeSheet(minAmount: $minAmount, maxAmount: $maxAmount)
     }
 
     private var customRangeSheet: some View {
@@ -299,6 +318,7 @@ struct TransactionsView: View {
                     ForEach(allTags, id: \.self) { Text("#\($0)").tag(String?.some($0)) }
                 }
             }
+            Button { showAmount = true } label: { Label(amountLabel ?? "Amount…", systemImage: "banknote") }
             if filtersActive {
                 Button("Clear filters", role: .destructive) { clearFilters() }
             }
@@ -372,5 +392,37 @@ struct TransactionRow: View {
         case .expense: Money.format(-tx.amountCents, signed: true, currency: currency)
         case .transfer: Money.format(tx.amountCents, currency: currency)
         }
+    }
+}
+
+/// Only show transactions between two amounts. Either end can be left empty.
+struct AmountRangeSheet: View {
+    @Binding var minAmount: Int?
+    @Binding var maxAmount: Int?
+    @Environment(\.dismiss) private var dismiss
+    @State private var minText = ""
+    @State private var maxText = ""
+
+    private var lo: Int? { minText.isEmpty ? nil : Money.parse(minText) }
+    private var hi: Int? { maxText.isEmpty ? nil : Money.parse(maxText) }
+    private var valid: Bool {
+        (minText.isEmpty || lo != nil) && (maxText.isEmpty || hi != nil) && !(lo != nil && hi != nil && lo! > hi!)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                HStack { Text("From"); AmountField(text: $minText, placeholder: "any") }
+                HStack { Text("To"); AmountField(text: $maxText, placeholder: "any") }
+                if !valid { Text("The first amount must not be larger than the second.").font(.footnote).foregroundStyle(Theme.danger) }
+            }
+            .navigationTitle("Amount").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Apply") { minAmount = lo; maxAmount = hi; dismiss() }.disabled(!valid) }
+            }
+            .onAppear { minText = minAmount.map { Money.editable($0) } ?? ""; maxText = maxAmount.map { Money.editable($0) } ?? "" }
+        }
+        .presentationDetents([.height(300)])
     }
 }

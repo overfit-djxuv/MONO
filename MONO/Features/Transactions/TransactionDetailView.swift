@@ -17,6 +17,7 @@ struct TransactionDetailView: View {
     @State private var editing = false
     @State private var confirmDelete = false
     @State private var showReceipt = false
+    @State private var scanning = false
 
     private var from: Account? { directory.account(tx.accountID) }
     private var to: Account? { tx.toAccountID.flatMap { directory.byID[$0] } }
@@ -85,7 +86,10 @@ struct TransactionDetailView: View {
                     }
                 }
                 .surface()
-                if let receipt { receiptCard(receipt) }
+                if let receipt { receiptCard(receipt) } else if tx.kind != .transfer {
+                    Button { scanning = true } label: { Label("Attach a receipt", systemImage: "doc.viewfinder").font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 44) }
+                        .buttonStyle(PressableStyle()).foregroundStyle(Theme.accent).surface(padding: 4).accessibilityIdentifier("attachReceiptDetail")
+                }
                 VStack(spacing: 6) {
                     Button("Repeat for today") {
                         do { try Ledger.repeatTransaction(tx, in: context); Haptics.success() } catch { errors.report(error, doing: "Couldn’t repeat") }
@@ -101,6 +105,16 @@ struct TransactionDetailView: View {
         .navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Edit") { editing = true }.accessibilityIdentifier("editTransaction") } }
         .sheet(isPresented: $editing) { TransactionForm(editing: tx) }
+        .sheet(isPresented: $scanning) {
+            ReceiptScanFlow { d in
+                do {
+                    try ReceiptStore.saveDraft(d, transactionID: tx.id, merchant: tx.merchant.isEmpty ? d.parsed.merchant : tx.merchant, date: tx.date,
+                                               totalCents: d.parsed.totalCents ?? tx.amountCents, taxCents: d.parsed.taxCents ?? 0,
+                                               currencyCode: currency.code, category: tx.category, in: context)
+                    try context.save(); Haptics.success()
+                } catch { errors.report(error, doing: "Couldn’t attach the receipt") }
+            }
+        }
         .sheet(isPresented: $showReceipt) { if let receipt { NavigationStack { ReceiptEditorView(draft: nil, receipt: receipt, onFinish: { showReceipt = false }) } } }
         .confirmationDialog("Delete this transaction?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {

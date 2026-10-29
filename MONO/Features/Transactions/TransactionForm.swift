@@ -26,6 +26,9 @@ struct TransactionForm: View {
     @State private var toAccountID: UUID?
     @State private var receivedText = ""
     @State private var showNewCategory = false
+    @State private var pendingReceipt: ReceiptDraft?
+    @State private var showReceiptScan = false
+    @Query private var allReceipts: [Receipt]
     @State private var confirmDelete = false
     @State private var showDuplicate = false
 
@@ -125,6 +128,7 @@ struct TransactionForm: View {
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                     TextField("Notes (optional)", text: $notes, axis: .vertical).lineLimit(1...5)
+                    if !isTransfer { receiptRow }
                 }
                 if editing?.sourceID != nil {
                     Section {
@@ -164,6 +168,7 @@ struct TransactionForm: View {
                 }
             }
             .onAppear(perform: prepare)
+            .sheet(isPresented: $showReceiptScan) { ReceiptScanFlow { take($0) } }
             .sheet(isPresented: $showNewCategory) {
                 NewCategorySheet(kind: kind) { category = $0 }
             }
@@ -208,6 +213,36 @@ struct TransactionForm: View {
             }
             DatePicker("Date", selection: $date)
         }
+    }
+
+    private var attachedReceipt: Receipt? { editing.flatMap { e in allReceipts.first { $0.transactionID == e.id } } }
+
+    @ViewBuilder private var receiptRow: some View {
+        if let d = pendingReceipt {
+            HStack(spacing: 12) {
+                Image(uiImage: d.image).resizable().scaledToFill().frame(width: 36, height: 46).clipShape(RoundedRectangle(cornerRadius: 6))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Receipt will be attached").font(.subheadline)
+                    Text("Saved with this transaction").font(.caption).foregroundStyle(Theme.inkSecondary)
+                }
+                Spacer()
+                Button("Remove") { pendingReceipt = nil }.font(.subheadline).foregroundStyle(Theme.accent).buttonStyle(.borderless)
+            }
+        } else if let r = attachedReceipt {
+            Label(r.merchant.isEmpty ? "Receipt attached" : "Receipt attached · \(r.merchant)", systemImage: "doc.text.viewfinder")
+                .font(.subheadline).foregroundStyle(Theme.inkSecondary)
+        } else {
+            Button { showReceiptScan = true } label: { Label("Scan or attach a receipt", systemImage: "doc.viewfinder") }
+                .accessibilityIdentifier("attachReceipt")
+        }
+    }
+
+    /// A scanned receipt fills only what is still empty, so nothing you typed is overwritten.
+    private func take(_ d: ReceiptDraft) {
+        pendingReceipt = d
+        if amountText.isEmpty, let t = d.parsed.totalCents, t > 0 { amountText = Money.editable(t, currency: currency) }
+        if merchant.trimmingCharacters(in: .whitespaces).isEmpty { merchant = d.parsed.merchant }
+        if editing == nil, let day = d.parsed.date { date = day }
     }
 
     @ViewBuilder private var transferSection: some View {
@@ -286,17 +321,27 @@ struct TransactionForm: View {
             showDuplicate = true; return
         }
         let tags = Tags.normalize(tagsText)
+        let saved: TransactionRecord
         if let t = editing {
             t.amountCents = cents; t.kind = kind; t.category = category
             t.date = date; t.title = cleanTitle; t.notes = notes
             t.accountID = from?.id; t.merchant = cleanMerchant; t.tags = tags
             t.toAccountID = nil; t.toAmountCents = 0
+            saved = t
         } else {
-            context.insert(TransactionRecord(amountCents: cents, kind: kind, category: category, date: date, title: cleanTitle,
-                                             notes: notes, accountID: from?.id, merchant: cleanMerchant, tags: tags))
+            saved = TransactionRecord(amountCents: cents, kind: kind, category: category, date: date, title: cleanTitle,
+                                      notes: notes, accountID: from?.id, merchant: cleanMerchant, tags: tags)
+            context.insert(saved)
         }
-        do { try context.save(); lastAccountID = from?.id.uuidString ?? ""; Haptics.success(); dismiss() }
-        catch { errors.report(error, doing: "Couldn’t save") }
+        do {
+            if let d = pendingReceipt {
+                // The receipt records what the paper says; the transaction keeps what you confirmed above.
+                try ReceiptStore.saveDraft(d, transactionID: saved.id, merchant: cleanMerchant.isEmpty ? d.parsed.merchant : cleanMerchant, date: date,
+                                           totalCents: d.parsed.totalCents ?? cents, taxCents: d.parsed.taxCents ?? 0,
+                                           currencyCode: (from?.currencyCode ?? Money.reporting.code), category: category, in: context)
+            }
+            try context.save(); lastAccountID = from?.id.uuidString ?? ""; Haptics.success(); dismiss()
+        } catch { errors.report(error, doing: "Couldn’t save") }
     }
 }
 

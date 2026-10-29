@@ -86,4 +86,21 @@ enum ReceiptStore {
     static func writePhotos(_ items: [BackupFile.ReceiptDTO]) {
         for d in items { if let bytes = d.imageData, !d.imageFile.isEmpty { _ = try? store(bytes, name: d.imageFile) } }
     }
+
+    /// Saves a scanned receipt as a record plus its photo, optionally linked to a transaction. The caller saves the context.
+    @discardableResult
+    static func saveDraft(_ d: ReceiptDraft, transactionID: UUID?, merchant: String, date: Date, totalCents: Int, taxCents: Int = 0,
+                          currencyCode: String, category: String, notes: String = "", needsReview: Bool = false,
+                          in context: ModelContext) throws -> Receipt {
+        guard let data = prepared(d.image) else { throw ReceiptOCR.OCRError.unreadable }
+        let r = Receipt()
+        r.imageFile = try store(data); r.imageHash = hash(data)
+        r.ocrText = d.ocrText; r.languageRaw = d.language.rawValue
+        r.itemsJSON = (try? JSONEncoder().encode(d.parsed.items)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        r.merchant = merchant.trimmingCharacters(in: .whitespacesAndNewlines); r.date = date
+        r.totalCents = totalCents; r.taxCents = taxCents; r.currencyCode = currencyCode; r.category = category; r.notes = notes
+        r.needsReview = needsReview; r.transactionID = transactionID
+        context.insert(r)
+        return r
+    }
 }

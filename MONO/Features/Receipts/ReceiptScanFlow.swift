@@ -13,6 +13,8 @@ struct ReceiptDraft {
 /// Choose how to capture a receipt, read it on this iPhone, then review before anything is saved.
 struct ReceiptScanFlow: View {
     var autoCamera = false
+    /// When set, the scan is handed back instead of opening the review screen (used to attach a receipt to a transaction).
+    var onPicked: ((ReceiptDraft) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @AppStorage("receiptLanguage") private var languageRaw = ScanLanguage.auto.rawValue
     @State private var picked: PhotosPickerItem?
@@ -95,7 +97,7 @@ struct ReceiptScanFlow: View {
                 } catch { d.notice = "Reading the photo failed. You can type the details yourself." }
             } else { d.notice = "Burmese receipts aren’t read automatically. Enter the details below; the photo is kept." }
             working = false
-            draft = d
+            if let onPicked { onPicked(d); dismiss() } else { draft = d }
         }
     }
 }

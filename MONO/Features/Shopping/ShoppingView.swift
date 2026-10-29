@@ -69,6 +69,17 @@ struct ShoppingView: View {
                             ItemRow(item: item, recorded: item.expenseID != nil, onToggle: { toggle(item) })
                                 .contentShape(Rectangle())
                                 .onTapGesture { sheet = ItemTarget(item: item) }
+                                .contextMenu {
+                                    Menu {
+                                        ForEach(ListKind.allCases.filter { $0 != item.listKind }) { k in
+                                            Button { move(item, to: k) } label: { Label(k.label, systemImage: k.symbol) }
+                                        }
+                                    } label: { Label("Move to list", systemImage: "arrow.right.circle") }
+                                    Button { sheet = ItemTarget(item: item) } label: { Label("Edit", systemImage: "pencil") }
+                                    if item.estimatedCents > 0 && !item.isPurchased {
+                                        Button { simulate = item } label: { Label("Simulate purchase", systemImage: "wand.and.stars") }
+                                    }
+                                }
                                 .listRowBackground(GlassRowBackground()).listRowSeparatorTint(Theme.line)
                                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                     if item.estimatedCents > 0 && !item.isPurchased {
@@ -172,6 +183,11 @@ struct ShoppingView: View {
             if !quick.isEmpty { Button("Add", action: addQuick).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent) }
         }
         .padding(.horizontal, 14).frame(minHeight: 48).surface(padding: 0)
+    }
+
+    private func move(_ item: ShoppingItem, to kind: ListKind) {
+        item.listKindRaw = kind.rawValue
+        do { try context.save(); Haptics.tap() } catch { errors.report(error, doing: "Couldn’t move the item") }
     }
 
     private func addQuick() {
