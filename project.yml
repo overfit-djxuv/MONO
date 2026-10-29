@@ -8,8 +8,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "2.0.2"
-    CURRENT_PROJECT_VERSION: "14"
+    MARKETING_VERSION: "2.0.3"
+    CURRENT_PROJECT_VERSION: "15"
     CODE_SIGN_STYLE: Automatic
     # Your team and bundle id prefix come from tools/local.env (see tools/generate.sh).
     DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}

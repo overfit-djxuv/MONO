@@ -2,6 +2,9 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 2.0.3 · 29 Oct 2026 · Add button back
+- The + button is back in the Dashboard's top bar, next to More, for adding a transaction in one tap.
+
 ## 2.0.2 · 29 Oct 2026 · Dashboard summaries back
 - The Dashboard shows its summaries again: income, expenses, the budget ring, saved percentage and per-day allowance for the month, plus the cash flow chart, spending by category and savings growth, with an All analytics link at the bottom.
 

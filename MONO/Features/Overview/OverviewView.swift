@@ -104,6 +104,10 @@ struct OverviewView: View {
                     .accessibilityLabel("More")
                     .accessibilityIdentifier("dashboardMore")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { sheet = .expense } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Add transaction").accessibilityIdentifier("overviewAdd")
+                }
             }
             .sheet(item: $sheet) { s in
                 switch s {

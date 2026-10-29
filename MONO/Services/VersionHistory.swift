@@ -18,6 +18,11 @@ struct Release: Identifiable, Equatable {
 
 enum VersionHistory {
     static let releases: [Release] = [
+        Release(version: "2.0.3", date: "29 Oct 2026", title: "Add button back",
+                notes: ["The + button is back in the Dashboard's top bar, next to More, for adding a transaction in one tap."],
+                improvements: [],
+                fixes: [],
+                security: []),
         Release(version: "2.0.2", date: "29 Oct 2026", title: "Dashboard summaries back",
                 notes: ["The Dashboard shows its summaries again: income, expenses, the budget ring, saved percentage and per-day allowance for the month, plus the cash flow chart, spending by category and savings growth, with an All analytics link at the bottom."],
                 improvements: [],
