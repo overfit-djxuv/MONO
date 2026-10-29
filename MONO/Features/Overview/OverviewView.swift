@@ -137,6 +137,16 @@ struct OverviewView: View {
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HeroBackground())
+        .overlay(alignment: .topTrailing) {
+            Button { PrivacyStore.shared.toggle(); Haptics.tap() } label: {
+                Image(systemName: PrivacyStore.shared.hidden ? "eye.slash" : "eye").font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Theme.onPrimary.opacity(0.85)).frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .padding(8)
+            .accessibilityLabel(PrivacyStore.shared.hidden ? "Show amounts" : "Hide amounts")
+            .accessibilityIdentifier("toggleHideAmounts")
+        }
     }
 
     // MARK: Metrics
@@ -248,7 +258,7 @@ struct OverviewView: View {
                 Text("Add a few transactions to see income and expenses by month.")
                     .font(.subheadline).foregroundStyle(Theme.inkSecondary)
             } else {
-                IncomeExpenseChart(months: months)
+                IncomeExpenseChart(months: months).hidesAmounts()
                 if let first, first > month.adding(-5) {
                     Text("Showing records from \(first.title()). Earlier months aren’t estimated.")
                         .font(.caption).foregroundStyle(Theme.inkTertiary)
@@ -264,7 +274,7 @@ struct OverviewView: View {
             if slices.isEmpty {
                 Text("No expenses recorded in \(month.title()).").font(.subheadline).foregroundStyle(Theme.inkSecondary)
             } else {
-                CategoryDonut(slices: slices)
+                CategoryDonut(slices: slices).hidesAmounts()
                 CategoryBreakdownList(slices: slices, limit: 5)
             }
         }
@@ -302,7 +312,7 @@ struct OverviewView: View {
                 Text("Plan a trip to track how much you need to save each month.")
                     .font(.subheadline).foregroundStyle(Theme.inkSecondary)
             }
-            if growth.count >= 2 { SavingsGrowthChart(points: growth, height: 110) }
+            if growth.count >= 2 { SavingsGrowthChart(points: growth, height: 110).hidesAmounts() }
         }
     }
 

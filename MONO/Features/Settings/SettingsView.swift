@@ -74,11 +74,17 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle(isOn: Binding(get: { PrivacyStore.shared.hidden }, set: { PrivacyStore.shared.setHidden($0) })) {
+                    Label("Hide amounts", systemImage: "eye.slash")
+                }
+                Toggle(isOn: Binding(get: { PrivacyStore.shared.hideOnLaunch }, set: { PrivacyStore.shared.setHideOnLaunch($0) })) {
+                    Label("Hide when the app opens", systemImage: "lock.rectangle")
+                }
                 Toggle(isOn: Binding(get: { lockEnabled }, set: { setLock($0) })) {
                     Label("Require Face ID", systemImage: "faceid")
                 }
             } header: { Text("Security") } footer: {
-                Text("MONO locks whenever you leave it and asks for Face ID, or your iPhone passcode if Face ID fails.")
+                Text("Hide amounts shows dots instead of money, and blurs charts (tap the eye on Overview to switch it quickly). Face ID lock asks for Face ID, or your iPhone passcode, whenever you come back to the app.")
             }
 
             Section {

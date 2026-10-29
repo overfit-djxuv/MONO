@@ -316,3 +316,42 @@ final class EssentialSeedingTests: XCTestCase {
         XCTAssertFalse(d.bool(forKey: DefaultCategories.essentialSeededKey), "nothing to mark yet, so it will try again later")
     }
 }
+
+final class HideAmountsTests: XCTestCase {
+    override func tearDown() { PrivacyStore.shared.setHidden(false) }
+
+    func testMoneyIsMaskedButTheSymbolAndSignRemain() {
+        PrivacyStore.shared.setHidden(true)
+        XCTAssertEqual(Money.format(123_456), "RM ••••")
+        XCTAssertEqual(Money.format(-500), "−RM ••••")
+        XCTAssertEqual(Money.format(500, signed: true), "+RM ••••", "income still reads as income")
+        XCTAssertEqual(Money.format(500, signed: false), "RM ••••")
+        XCTAssertEqual(Money.format(100_000, currency: Currency.find("JPY")), "¥ ••••")
+        XCTAssertEqual(Money.formatWhole(123_456), "RM ••••"); XCTAssertEqual(Money.compact(5_000), "•••")
+        XCTAssertFalse(Money.format(987_654_321).contains("9"), "no digit of the real amount leaks")
+    }
+    func testNumbersComeBackWhenShown() {
+        PrivacyStore.shared.setHidden(true); PrivacyStore.shared.setHidden(false)
+        XCTAssertEqual(Money.format(123_456), "RM 1,234.56")
+    }
+    func testHidingDoesNotChangeAnyCalculation() {
+        let tx = [TransactionRecord(amountCents: 5_000, kind: .income, category: "Salary", date: date(2026, 3, 1), title: ""),
+                  TransactionRecord(amountCents: 1_200, kind: .expense, category: "Food", date: date(2026, 3, 2), title: "")]
+        let before = FinanceEngine.totals(tx, in: MonthKey(year: 2026, month: 3), calendar: utc)
+        PrivacyStore.shared.setHidden(true)
+        let after = FinanceEngine.totals(tx, in: MonthKey(year: 2026, month: 3), calendar: utc)
+        XCTAssertEqual(before.income, after.income); XCTAssertEqual(before.expense, after.expense)
+        XCTAssertEqual(Money.parse("12.50"), 1_250, "typing amounts still works while hidden")
+        XCTAssertEqual(Money.editable(1_250), "12.50", "and editing shows the real number in the field you are typing in")
+    }
+    func testRememberedAcrossLaunchesUnlessHideOnLaunchIsOn() {
+        let name = "mono-priv-\(UUID().uuidString)"
+        let a = PrivacyStore(defaults: UserDefaults(suiteName: name)!)
+        a.setHidden(true)
+        XCTAssertTrue(PrivacyStore(defaults: UserDefaults(suiteName: name)!).hidden, "remembers how you left it")
+        a.setHidden(false); a.setHideOnLaunch(true)
+        XCTAssertTrue(PrivacyStore(defaults: UserDefaults(suiteName: name)!).hidden, "hide-on-launch overrides")
+        a.setHideOnLaunch(false)
+        XCTAssertFalse(PrivacyStore(defaults: UserDefaults(suiteName: name)!).hidden)
+    }
+}

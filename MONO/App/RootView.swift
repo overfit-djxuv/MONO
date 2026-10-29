@@ -59,6 +59,7 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.15), value: phase)
         .animation(.easeOut(duration: 0.15), value: lock.isLocked)
         .onChange(of: plannedSignature) { _, _ in refreshReminders() }
+        .onChange(of: PrivacyStore.shared.hidden) { _, _ in refreshReminders() }   // notification text follows Hide amounts
         .onChange(of: allTx.count) { _, _ in refreshBudgetAlert(); migrateAccounts() }
         .onChange(of: phase) { _, new in
             switch new {

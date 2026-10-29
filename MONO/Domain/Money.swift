@@ -29,6 +29,12 @@ enum Money {
         let cur = currency ?? reporting
         let sym = symbol ?? (currency == nil ? Self.symbol : cur.symbol)
         let a = abs(cents)
+        // Hide amounts: the figure becomes dots but the symbol and the sign stay, so income still reads as income.
+        if PrivacyStore.shared.hidden {
+            let masked = "\(sym) \(PrivacyStore.mask)"
+            if cents < 0 { return "−" + masked }
+            return signed && cents > 0 ? "+" + masked : masked
+        }
         let w = whole.string(from: NSNumber(value: a / cur.scale)) ?? "\(a / cur.scale)"
         let body = cur.digits == 0 ? "\(sym) \(w)" : "\(sym) \(w).\(String(format: "%0\(cur.digits)d", a % cur.scale))"
         if cents < 0 { return "−" + body }
@@ -37,6 +43,7 @@ enum Money {
 
     /// Whole-unit rendering for tight spaces: "RM 1,235".
     static func formatWhole(_ cents: Int) -> String {
+        if PrivacyStore.shared.hidden { return (cents < 0 ? "−" : "") + "\(symbol) \(PrivacyStore.mask)" }
         let rounded = Int((Double(abs(cents)) / Double(reporting.scale)).rounded())
         let w = whole.string(from: NSNumber(value: rounded)) ?? "\(rounded)"
         return (cents < 0 ? "−" : "") + "\(symbol) \(w)"
@@ -44,6 +51,7 @@ enum Money {
 
     /// Chart-axis style: 1.2k, 3.4M.
     static func compact(_ value: Double) -> String {
+        if PrivacyStore.shared.hidden { return "•••" }
         let a = abs(value)
         let sign = value < 0 ? "−" : ""
         switch a {

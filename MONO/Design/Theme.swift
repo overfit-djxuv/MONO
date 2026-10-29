@@ -226,6 +226,26 @@ struct StatTile: View {
     }
 }
 
+// MARK: - Hide amounts
+
+/// With Hide amounts on, a chart is blurred and can't be touched, because its shape would still give the numbers away.
+struct HideAmounts: ViewModifier {
+    func body(content: Content) -> some View {
+        let hidden = PrivacyStore.shared.hidden
+        content
+            .blur(radius: hidden ? 14 : 0)
+            .allowsHitTesting(!hidden)
+            .accessibilityHidden(hidden)
+            .overlay {
+                if hidden {
+                    Label("Amounts hidden", systemImage: "eye.slash").font(.footnote.weight(.medium)).foregroundStyle(Theme.inkSecondary)
+                        .padding(.vertical, 6).padding(.horizontal, 12).background(.ultraThinMaterial, in: Capsule())
+                }
+            }
+            .animation(Theme.easeOut(0.2), value: hidden)
+    }
+}
+
 // MARK: - Entrance
 
 /// Short fade + 8pt rise. Used once on first appearance of a screen; skipped for Reduce Motion.
@@ -246,6 +266,8 @@ struct Entrance: ViewModifier {
 
 extension View {
     func entrance(_ index: Int) -> some View { modifier(Entrance(index: index)) }
+
+    func hidesAmounts() -> some View { modifier(HideAmounts()) }
 
     func glass(padding: CGFloat = 16, radius: CGFloat = Theme.cardRadius, tint: Color? = nil) -> some View {
         modifier(GlassStyle(padding: padding, radius: radius, tint: tint))

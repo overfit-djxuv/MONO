@@ -71,7 +71,7 @@ struct AnalyticsView: View {
     private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionHeader(title: title)
-            content()
+            content().hidesAmounts()
         }
     }
 
