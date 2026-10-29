@@ -492,3 +492,30 @@ final class QuickActionTests: XCTestCase {
         XCTAssertNil(r.take(isLocked: false))
     }
 }
+
+final class DashboardInsightTests: XCTestCase {
+    private let month = MonthKey(Date())
+    private func budget(_ lines: [(String, Int, Int)]) -> BudgetSummary {
+        BudgetSummary(month: month, total: lines.reduce(0) { $0 + $1.1 }, spent: lines.reduce(0) { $0 + $1.2 },
+                      lines: lines.map { BudgetLine(category: $0.0, limit: $0.1, spent: $0.2) }, unbudgetedSpent: 0, daysLeft: 10)
+    }
+    private let now = Date()
+    func testNothingToSayWhenEverythingIsFine() {
+        XCTAssertNil(DashboardInsight.pick(budget: budget([("Food", 1000, 200)]), payments: [], behindGoals: []))
+    }
+    func testOverALimitWinsOverEverythingElse() {
+        let r = DashboardInsight.pick(budget: budget([("Food", 1000, 1200), ("Fun", 1000, 900)]), payments: [("Rent", now)], behindGoals: ["Trip"])
+        XCTAssertEqual(r, .overBudget(category: "Food", overBy: 200))
+    }
+    func testPaymentDueSoonBeatsNearLimitButFarPaymentsAreIgnored() {
+        let near = budget([("Food", 1000, 850)])
+        let soon = Calendar.current.date(byAdding: .day, value: 2, to: now)!, far = Calendar.current.date(byAdding: .day, value: 10, to: now)!
+        if case .paymentDue(let t, _, let overdue)? = DashboardInsight.pick(budget: near, payments: [("Rent", soon)], behindGoals: []) { XCTAssertEqual(t, "Rent"); XCTAssertFalse(overdue) } else { XCTFail() }
+        XCTAssertEqual(DashboardInsight.pick(budget: near, payments: [("Rent", far)], behindGoals: []), .nearLimit(category: "Food", remaining: 150, percent: 85))
+    }
+    func testOverduePaymentIsFlaggedAndBehindGoalIsLast() {
+        let past = Calendar.current.date(byAdding: .day, value: -2, to: now)!
+        if case .paymentDue(_, _, let overdue)? = DashboardInsight.pick(budget: budget([]), payments: [("Rent", past)], behindGoals: []) { XCTAssertTrue(overdue) } else { XCTFail() }
+        XCTAssertEqual(DashboardInsight.pick(budget: budget([]), payments: [], behindGoals: ["Tokyo"]), .goalBehind(name: "Tokyo"))
+    }
+}

@@ -20,7 +20,7 @@ struct OverviewView: View {
     @AppStorage("openingBalanceCents") private var opening = 0
     @AppStorage("lastBackupAt") private var lastBackupAt = 0.0
 
-    @State private var showAdd = false
+    @State private var sheet: DashboardSheet?
     @State private var path: [OverviewRoute] = OverviewView.initialPath
 
     private static var initialPath: [OverviewRoute] {
@@ -46,7 +46,7 @@ struct OverviewView: View {
 
         NavigationStack(path: $path) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 20) {
                     if BackupService.isBackupStale(lastBackup: lastBackupAt > 0 ? Date(timeIntervalSince1970: lastBackupAt) : nil,
                                                    hasData: !txs.isEmpty) {
                         Button { path.append(.backup) } label: {
@@ -56,7 +56,7 @@ struct OverviewView: View {
                         }
                         .buttonStyle(PressableStyle())
                     }
-                    hero(cash: cash, saved: saved).entrance(0)
+                    hero(books: books, cash: cash, saved: saved).entrance(0)
                     if !books.overview.unconverted.isEmpty || books.skipped > 0 {
                         Button { path.append(.accounts) } label: {
                             Callout(text: "Some money is in a currency with no exchange rate, so it isn’t in these totals. Tap to add a rate.",
@@ -64,67 +64,72 @@ struct OverviewView: View {
                         }
                         .buttonStyle(PressableStyle())
                     }
-                    if !txs.isEmpty || !accounts.isEmpty { safeLine(books).entrance(1) }
-                    if books.hasSeveralAccounts { accountsCard(books).card().entrance(1) }
-                    metrics(income: t.income, expense: t.expense, budget: budget, rate: rate).entrance(1)
-                    cashFlow.card().entrance(2)
-                    spending.card().entrance(3)
-                    savings(saved: saved).card().entrance(4)
-                    recent.card().entrance(5)
-                    upcoming.card().entrance(6)
-                    Button { path.append(.analytics) } label: {
-                        HStack {
-                            Label("All analytics", systemImage: "chart.xyaxis.line").font(.body)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.footnote).foregroundStyle(Theme.inkTertiary)
-                        }
-                        .foregroundStyle(Theme.ink)
-                        .card()
-                    }
-                    .buttonStyle(PressableStyle())
+                    summary(income: t.income, expense: t.expense, budget: budget, rate: rate).entrance(1)
+                    quickActions.entrance(2)
+                    insightLine(budget).entrance(2)
+                    if books.hasSeveralAccounts { accountsCard(books).surface().entrance(3) }
+                    goalsSection.entrance(3)
+                    upcoming.entrance(4)
+                    recent.entrance(5)
                 }
                 .padding(.horizontal, Theme.gutter).padding(.top, 4).padding(.bottom, 40)
             }
             .monoScreen()
-            .navigationTitle("Overview")
+            .navigationTitle("Dashboard")
             .navigationDestination(for: OverviewRoute.self) { r in
                 switch r { case .analytics: AnalyticsView(); case .settings: SettingsView(); case .appIcon: ThemeEditorView(initialTab: .icon); case .history: VersionHistoryView(); case .theme: ThemeEditorView(); case .accounts: AccountsView(); case .tools: ToolsView(); case .safeToSpend: SafeToSpendView(); case .subscriptions: SubscriptionsView(); case .insights: InsightsView(); case .purchase: PurchaseSimulatorView(); case .whatIf: WhatIfLabView(); case .review: MonthlyReviewView(); case .backup: BackupCenterView(); case .receipts: ReceiptsView(); default: ToolsView() }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { path.append(.settings) } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { PrivacyStore.shared.toggle(); Haptics.tap() } label: {
+                        Image(systemName: PrivacyStore.shared.hidden ? "eye.slash" : "eye")
+                    }
+                    .accessibilityLabel(PrivacyStore.shared.hidden ? "Show amounts" : "Hide amounts")
+                    .accessibilityIdentifier("toggleHideAmounts")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { path.append(.tools) } label: { Image(systemName: "square.grid.2x2") }.accessibilityLabel("Tools")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { path.append(.analytics) } label: { Image(systemName: "chart.xyaxis.line") }.accessibilityLabel("Analytics")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showAdd = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("Add transaction").accessibilityIdentifier("overviewAdd")
+                    Menu {
+                        Button { path.append(.analytics) } label: { Label("Analytics", systemImage: "chart.xyaxis.line") }
+                        Button { path.append(.tools) } label: { Label("Tools", systemImage: "square.grid.2x2") }
+                        Button { path.append(.receipts) } label: { Label("Receipts", systemImage: "doc.text.viewfinder") }
+                        Button { path.append(.accounts) } label: { Label("Accounts & currency", systemImage: "wallet.pass") }
+                        Divider()
+                        Button { path.append(.backup) } label: { Label("Backup & recovery", systemImage: "externaldrive.badge.checkmark") }
+                        Button { path.append(.settings) } label: { Label("Settings", systemImage: "gearshape") }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel("More")
+                    .accessibilityIdentifier("dashboardMore")
                 }
             }
-            .sheet(isPresented: $showAdd) { TransactionForm(editing: nil) }
+            .sheet(item: $sheet) { s in
+                switch s {
+                case .expense: TransactionForm(editing: nil, kind: .expense)
+                case .income: TransactionForm(editing: nil, kind: .income)
+                case .transfer: TransactionForm(editing: nil, kind: .transfer)
+                case .scan: ReceiptScanFlow()
+                case .toGoal(let g): MoveMoneySheet(goal: g, withdraw: false)
+                }
+            }
         }
+    }
+
+    enum DashboardSheet: Identifiable {
+        case expense, income, transfer, scan, toGoal(SavingsGoal)
+        var id: String { switch self { case .expense: "e"; case .income: "i"; case .transfer: "t"; case .scan: "s"; case .toGoal(let g): "g\(g.id)" } }
     }
 
     // MARK: Hero
 
-    private func hero(cash: Int, saved: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Available cash").font(.footnote.weight(.medium)).foregroundStyle(Theme.onPrimary.opacity(0.74))
+    private func hero(books: Books, cash: Int, saved: Int) -> some View {
+        let r = SafeToSpend.make(config: SafeToSpend.Config.load(), books: books, planned: planned, rules: rules, goals: goals, costs: costs,
+                                 entries: entries, categories: categories, limits: limits, monthBudgets: monthBudgets, reserved: reservedFunds)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Available").font(.footnote.weight(.medium)).foregroundStyle(Theme.onPrimary.opacity(0.78))
             Text(Money.format(cash))
-                .font(.figure(44, weight: .light)).foregroundStyle(Theme.onPrimary)
+                .font(.figure(40, weight: .semibold)).foregroundStyle(Theme.onPrimary)
                 .lineLimit(1).minimumScaleFactor(0.6)
                 .contentTransition(.numericText())
                 .accessibilityIdentifier("availableCash")
-            HStack(spacing: 6) {
-                Image(systemName: "lock").font(.caption2)
-                Text("\(Money.format(saved)) set aside in goals").font(.footnote)
-            }
-            .foregroundStyle(Theme.onPrimary.opacity(0.74))
-            .padding(.top, 2)
             if cash == 0 && txs.isEmpty {
                 Button { path.append(.accounts) } label: {
                     Text("Add your starting balance to see what you have today")
@@ -132,93 +137,139 @@ struct OverviewView: View {
                         .underline(true, color: Theme.onPrimary.opacity(0.4))
                 }
                 .buttonStyle(PressableStyle()).padding(.top, 6)
+            } else {
+                Rectangle().fill(Theme.onPrimary.opacity(0.22)).frame(height: 0.5).padding(.vertical, 10)
+                Button { path.append(.safeToSpend) } label: {
+                    HStack {
+                        Text(r.isShortfall ? "Short for bills and plans" : "Safe to spend until \(r.horizonEnd.formatted(.dateTime.day().month(.abbreviated)))")
+                            .foregroundStyle(Theme.onPrimary.opacity(0.78))
+                        Spacer(minLength: 8)
+                        Text(Money.format(abs(r.flexible))).font(.figure(15, weight: .semibold)).foregroundStyle(Theme.onPrimary)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.onPrimary.opacity(0.6))
+                    }
+                    .font(.subheadline).contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityElement(children: .combine)
+                HStack {
+                    Text("Set aside in goals").foregroundStyle(Theme.onPrimary.opacity(0.78))
+                    Spacer()
+                    Text(Money.format(saved)).font(.figure(15)).foregroundStyle(Theme.onPrimary)
+                }
+                .font(.subheadline).padding(.top, 4)
+                .accessibilityElement(children: .combine)
             }
         }
-        .padding(22)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HeroBackground())
-        .overlay(alignment: .topTrailing) {
-            Button { PrivacyStore.shared.toggle(); Haptics.tap() } label: {
-                Image(systemName: PrivacyStore.shared.hidden ? "eye.slash" : "eye").font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Theme.onPrimary.opacity(0.85)).frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .buttonStyle(PressableStyle())
-            .padding(8)
-            .accessibilityLabel(PrivacyStore.shared.hidden ? "Show amounts" : "Hide amounts")
-            .accessibilityIdentifier("toggleHideAmounts")
-        }
     }
 
-    // MARK: Metrics
+    // MARK: Summary
 
-    private func metrics(income: Int, expense: Int, budget: BudgetSummary, rate: Double?) -> some View {
-        let tint = budget.state == .over ? Theme.danger : budget.state == .warning ? Theme.warning : Theme.accent
+    private func summary(income: Int, expense: Int, budget: BudgetSummary, rate: Double?) -> some View {
+        let tint = ProgressTone.tint(budget.fraction ?? 0)
         return VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: month.title()).padding(.horizontal, 4)
-            HStack(spacing: 12) {
-                StatTile(title: "Income", value: Money.format(income), symbol: "arrow.down.left", tint: Theme.income)
-                StatTile(title: "Expenses", value: Money.format(expense), symbol: "arrow.up.right")
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
-                budgetTile(budget, tint: tint)
-                VStack(spacing: 12) {
-                    if let rate {
-                        StatTile(title: "Saved", value: "\(Int((rate * 100).rounded()))%", symbol: "leaf",
-                                 tint: rate < 0 ? Theme.danger : Theme.ink, footnote: rate < 0 ? "Spending exceeds income" : "of income")
-                    } else {
-                        StatTile(title: "Saved", value: "—", symbol: "leaf", footnote: "No income yet")
-                    }
-                    StatTile(title: "Per day", value: budget.dailyAllowance.map { Money.format($0) } ?? "—", symbol: "calendar",
-                             footnote: budget.dailyAllowance == nil ? "No budget set" : "\(budget.daysLeft) \(budget.daysLeft == 1 ? "day" : "days") left")
+            StatStrip(items: [
+                .init(label: "Spent in \(month.shortTitle())", value: Money.format(expense)),
+                .init(label: "Budget left", value: budget.remaining.map { $0 < 0 ? "−\(Money.format(-$0))" : Money.format($0) } ?? "Not set",
+                      tint: budget.state == .over ? Theme.danger : Theme.ink),
+                .init(label: "Saved", value: rate.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", tint: (rate ?? 0) < 0 ? Theme.danger : Theme.income)
+            ])
+            if let f = budget.fraction {
+                ProgressLine(value: f, tint: tint, height: 5)
+                HStack {
+                    Text("\(Int((f * 100).rounded()))% of your \(month.shortTitle()) budget used").font(.caption).foregroundStyle(Theme.inkSecondary)
+                    Spacer()
+                    if let a = budget.dailyAllowance { Text("\(Money.format(a)) a day").font(.caption).foregroundStyle(Theme.inkSecondary) }
                 }
+            } else {
+                Button { tab = .budget } label: { Text("Set a monthly budget to see what’s left").font(.caption.weight(.medium)).foregroundStyle(Theme.accent) }
+                    .buttonStyle(PressableStyle())
             }
-            .fixedSize(horizontal: false, vertical: true)
+        }
+        .surface()
+    }
+
+    // MARK: Quick actions
+
+    private var quickActions: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                QuickChip(title: "Expense", symbol: "minus") { sheet = .expense }.accessibilityIdentifier("overviewAdd")
+                QuickChip(title: "Income", symbol: "plus") { sheet = .income }
+                QuickChip(title: "Transfer", symbol: "arrow.left.arrow.right") { sheet = .transfer }
+                QuickChip(title: "To goal", symbol: "flag") {
+                    let open = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
+                    if open.count == 1, let g = open.first { sheet = .toGoal(g) } else { tab = .goals }
+                }
+                QuickChip(title: "Shopping", symbol: "cart") { tab = .shopping }
+                QuickChip(title: "Scan", symbol: "doc.viewfinder") { sheet = .scan }
+            }
+            .padding(.horizontal, Theme.gutter)
+        }
+        .padding(.horizontal, -Theme.gutter)
+    }
+
+    // MARK: Insight (at most one)
+
+    @ViewBuilder private func insightLine(_ budget: BudgetSummary) -> some View {
+        let payments = subscriptionPayments + FinanceEngine.upcoming(planned).map { (title: $0.title, date: $0.dueDate) }
+        let behind = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status == .behind }.map(\.name)
+        if let i = DashboardInsight.pick(budget: budget, payments: payments, behindGoals: behind) {
+            switch i {
+            case .overBudget(let c, let over):
+                Button { tab = .budget } label: { Callout(text: "\(c) is \(Money.format(over)) over its limit this month.", tone: .danger, symbol: "exclamationmark.circle") }.buttonStyle(PressableStyle())
+            case .nearLimit(let c, let left, let pct):
+                Button { tab = .budget } label: { Callout(text: "\(c) is at \(pct)% of its limit, \(Money.format(left)) left.", tone: .warning, symbol: "gauge.with.dots.needle.67percent") }.buttonStyle(PressableStyle())
+            case .paymentDue(let title, let date, let overdue):
+                Callout(text: "\(title) \(overdue ? "was due" : "is due") \(date.short).", tone: overdue ? .danger : .warning, symbol: "calendar.badge.exclamationmark")
+            case .goalBehind(let name):
+                Button { tab = .goals } label: { Callout(text: "\(name) is behind plan.", tone: .warning, symbol: "flag") }.buttonStyle(PressableStyle())
+            }
         }
     }
 
-    private func budgetTile(_ b: BudgetSummary, tint: Color) -> some View {
-        VStack(spacing: 12) {
-            RingGauge(value: b.fraction ?? 0, tint: tint, lineWidth: 11) {
-                VStack(spacing: 0) {
-                    Text(b.fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—").font(.figure(24)).foregroundStyle(Theme.ink)
-                    Text("used").font(.caption2).foregroundStyle(Theme.inkTertiary)
-                }
-            }
-            .frame(width: 104, height: 104)
-            VStack(spacing: 2) {
-                Text(b.remaining.map { $0 < 0 ? "Over by \(Money.format(-$0))" : "\(Money.format($0)) left" } ?? "No budget set")
-                    .font(.footnote.weight(.medium)).foregroundStyle(b.state == .over ? Theme.danger : Theme.ink)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Text("Budget").font(.caption).foregroundStyle(Theme.inkTertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glass(radius: 22)
-        .accessibilityElement(children: .combine)
+    private var subscriptionPayments: [(title: String, date: Date)] {
+        rules.filter { $0.status == .active && $0.kind == .expense }.map { (title: $0.title, date: $0.dueDate) }
     }
 
-    /// One quiet line; the full breakdown is a tap away.
-    private func safeLine(_ books: Books) -> some View {
-        let r = SafeToSpend.make(config: SafeToSpend.Config.load(), books: books, planned: planned, rules: rules, goals: goals, costs: costs,
-                                 entries: entries, categories: categories, limits: limits, monthBudgets: monthBudgets, reserved: reservedFunds)
-        return Button { path.append(.safeToSpend) } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "shield.lefthalf.filled").foregroundStyle(r.isShortfall ? Theme.warning : Theme.accent)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(r.isShortfall ? "Short by \(Money.format(abs(r.flexible)))" : "Safe to spend \(Money.format(r.flexible))")
-                        .font(.subheadline.weight(.medium)).foregroundStyle(Theme.ink)
-                    Text("until \(r.horizonEnd.formatted(.dateTime.day().month(.abbreviated))) · after bills, savings and essentials")
-                        .font(.caption).foregroundStyle(Theme.inkSecondary).lineLimit(1)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(Theme.inkTertiary)
+    // MARK: Goals
+
+    private var goalsSection: some View {
+        let active = goals.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
+            .sorted { ($0.priority.rawValue, $0.deadline ?? .distantFuture) > ($1.priority.rawValue, $1.deadline ?? .distantFuture) }
+            .prefix(3)
+        return VStack(alignment: .leading, spacing: 0) {
+            SectionTitle(title: "Goals", trailing: goals.isEmpty ? nil : "See all") { tab = .goals }.padding(.bottom, 2)
+            if goals.isEmpty {
+                Button { tab = .goals } label: {
+                    Text("Plan a trip or a purchase to see how much to save each month.").font(.subheadline).foregroundStyle(Theme.inkSecondary).multilineTextAlignment(.leading)
+                }.buttonStyle(PressableStyle()).padding(.vertical, 8)
             }
-            .glass(padding: 14, radius: 20)
-            .contentShape(Rectangle())
+            ForEach(Array(active.enumerated()), id: \.element.id) { i, g in
+                let plan = SavingsPlanner.plan(for: g, costs: costs, entries: entries)
+                Button { tab = .goals } label: {
+                    ProgressRow(symbol: g.kind == .trip ? "airplane" : g.symbol, title: g.name,
+                                subtitle: "\(g.money(plan.saved)) of \(g.money(plan.target))",
+                                trailing: "\(Int((plan.percentFunded * 100).rounded()))%", value: plan.percentFunded,
+                                tint: plan.status == .overdue ? Theme.danger : plan.status == .behind ? Theme.warning : Theme.accent,
+                                note: goalNote(g, plan), noteTint: plan.status == .behind ? Theme.warning : Theme.inkSecondary)
+                }
+                .buttonStyle(PressableStyle())
+                if i < active.count - 1 { Hairline() }
+            }
         }
-        .buttonStyle(PressableStyle())
-        .accessibilityElement(children: .combine)
+    }
+
+    private func goalNote(_ g: SavingsGoal, _ plan: SavingsPlan) -> String? {
+        guard let r = plan.requiredMonthly else { return nil }
+        let pace = "\(g.money(r)) each \(g.frequency.noun) needed"
+        switch plan.status {
+        case .behind: return "Behind plan · \(pace)"
+        case .overdue: return "Past its date · \(pace)"
+        default: return pace
+        }
     }
 
     private func accountsCard(_ books: Books) -> some View {
@@ -245,88 +296,18 @@ struct OverviewView: View {
         }
     }
 
-    // MARK: Charts
-
-    private var cashFlow: some View {
-        let reported = books.reported
-        let first = FinanceEngine.firstRecordMonth(transactions: reported)
-        let start = first.map { max($0, month.adding(-5)) } ?? month
-        let months = FinanceEngine.monthlySummaries(reported, range: start.months(through: month))
-        return VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Cash flow", trailing: "Details") { path.append(.analytics) }
-            if txs.isEmpty {
-                Text("Add a few transactions to see income and expenses by month.")
-                    .font(.subheadline).foregroundStyle(Theme.inkSecondary)
-            } else {
-                IncomeExpenseChart(months: months).hidesAmounts()
-                if let first, first > month.adding(-5) {
-                    Text("Showing records from \(first.title()). Earlier months aren’t estimated.")
-                        .font(.caption).foregroundStyle(Theme.inkTertiary)
-                }
-            }
-        }
-    }
-
-    private var spending: some View {
-        let slices = FinanceEngine.expensesByCategory(books.reported, in: month...month)
-        return VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Spending by category")
-            if slices.isEmpty {
-                Text("No expenses recorded in \(month.title()).").font(.subheadline).foregroundStyle(Theme.inkSecondary)
-            } else {
-                CategoryDonut(slices: slices).hidesAmounts()
-                CategoryBreakdownList(slices: slices, limit: 5)
-            }
-        }
-    }
-
-    private func savings(saved: Int) -> some View {
-        let trips = goals.filter { $0.kind == .trip }
-        let trip = trips.filter { SavingsPlanner.plan(for: $0, costs: costs, entries: entries).status != .funded }
-            .min { ($0.deadline ?? .distantFuture) < ($1.deadline ?? .distantFuture) } ?? trips.first
-        let growth = FinanceEngine.savingsGrowth(entries: books.reportableEntries(goals: goals, entries: entries), through: month)
-        return VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Savings", trailing: "Goals") { tab = .goals }
-            if let trip {
-                let plan = SavingsPlanner.plan(for: trip, costs: costs, entries: entries)
-                Button { tab = .goals } label: {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Label(trip.name, systemImage: "airplane").font(.body).foregroundStyle(Theme.ink)
-                            Spacer()
-                            StatusChip(text: plan.statusText, tint: plan.statusTint)
-                        }
-                        ProgressLine(value: plan.percentFunded, tint: plan.status == .overdue ? Theme.danger : Theme.accent)
-                        HStack {
-                            Text("\(trip.money(plan.saved)) of \(trip.money(plan.target))").font(.figure(14)).foregroundStyle(Theme.ink)
-                            Spacer()
-                            if let r = plan.requiredMonthly, plan.status != .funded {
-                                Text("\(trip.money(r))/\(trip.frequency == .monthly ? "mo" : trip.frequency == .weekly ? "wk" : "2wk") needed").font(.footnote).foregroundStyle(Theme.inkSecondary)
-                            }
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressableStyle())
-            } else {
-                Text("Plan a trip to track how much you need to save each month.")
-                    .font(.subheadline).foregroundStyle(Theme.inkSecondary)
-            }
-            if growth.count >= 2 { SavingsGrowthChart(points: growth, height: 110).hidesAmounts() }
-        }
-    }
-
     // MARK: Lists
 
     private var recent: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(title: "Recent", trailing: txs.isEmpty ? nil : "See all") { tab = .transactions }.padding(.bottom, 6)
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle(title: "Recent", trailing: txs.isEmpty ? nil : "All transactions") { tab = .transactions }.padding(.bottom, 2)
             if txs.isEmpty {
                 EmptyState(symbol: "tray", title: "Nothing yet", message: "Your latest income and expenses will show up here.",
-                           actionTitle: "Add transaction") { showAdd = true }
+                           actionTitle: "Add transaction") { sheet = .expense }
             }
             ForEach(Array(txs.prefix(5).enumerated()), id: \.element.id) { i, tx in
                 TransactionRow(tx: tx, symbol: categories.symbol(for: tx.category), directory: AccountDirectory(accounts))
+                    .padding(.vertical, 6)
                 if i < min(txs.count, 5) - 1 { Hairline() }
             }
         }
@@ -349,7 +330,7 @@ struct OverviewView: View {
         }
         let list = Array((plannedItems + subs).sorted { $0.date < $1.date }.prefix(4))
         return VStack(alignment: .leading, spacing: 4) {
-            SectionHeader(title: "Upcoming", trailing: "Manage") { tab = .budget }.padding(.bottom, 6)
+            SectionTitle(title: "Coming up", trailing: "Budget") { tab = .budget }.padding(.bottom, 2)
             if list.isEmpty {
                 Text("Nothing due soon. Add bills in Budget, or subscriptions in Tools.")
                     .font(.subheadline).foregroundStyle(Theme.inkSecondary)

@@ -38,7 +38,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             OverviewView(tab: $tab)
-                .tabItem { Label("Overview", systemImage: "circle.grid.2x2") }
+                .tabItem { Label("Dashboard", systemImage: "circle.grid.2x2") }
                 .tag(AppTab.overview)
             TransactionsView()
                 .tabItem { Label("Transactions", systemImage: "list.bullet") }
@@ -46,12 +46,12 @@ struct RootView: View {
             BudgetView()
                 .tabItem { Label("Budget", systemImage: "chart.pie") }
                 .tag(AppTab.budget)
-            ShoppingView()
-                .tabItem { Label("Shopping", systemImage: "cart") }
-                .tag(AppTab.shopping)
             GoalsView()
                 .tabItem { Label("Goals", systemImage: "flag") }
                 .tag(AppTab.goals)
+            ShoppingView()
+                .tabItem { Label("Shopping", systemImage: "cart") }
+                .tag(AppTab.shopping)
         }
         .tint(Theme.accent)
         .sheet(item: $launched) { a in
