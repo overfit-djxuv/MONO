@@ -2,6 +2,9 @@
 
 Newest first. The same text appears in the app under Settings ▸ Version history (`MONO/Services/VersionHistory.swift`).
 
+## 2.0.2 · 29 Oct 2026 · Dashboard summaries back
+- The Dashboard shows its summaries again: income, expenses, the budget ring, saved percentage and per-day allowance for the month, plus the cash flow chart, spending by category and savings growth, with an All analytics link at the bottom.
+
 ## 2.0.1 · 29 Oct 2026 · Finishing touches
 - Goals can be marked completed or archived. They leave the active lists, Safe to spend and forecasts, keep their history, and sit under Completed and archived where you can reopen or restore them. Money already set aside stays set aside until you withdraw it.
 - Attach a receipt from a transaction: scan or choose a photo in the new-transaction form, or add one later from its details. Only fields you left empty are filled in from the receipt.

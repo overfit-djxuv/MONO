@@ -18,6 +18,11 @@ struct Release: Identifiable, Equatable {
 
 enum VersionHistory {
     static let releases: [Release] = [
+        Release(version: "2.0.2", date: "29 Oct 2026", title: "Dashboard summaries back",
+                notes: ["The Dashboard shows its summaries again: income, expenses, the budget ring, saved percentage and per-day allowance for the month, plus the cash flow chart, spending by category and savings growth, with an All analytics link at the bottom."],
+                improvements: [],
+                fixes: [],
+                security: []),
         Release(version: "2.0.1", date: "29 Oct 2026", title: "Finishing touches",
                 notes: ["Goals can be marked completed or archived. They leave the active lists, Safe to spend and forecasts, keep their history, and sit under Completed and archived where you can reopen or restore them. Money already set aside stays set aside until you withdraw it.",
                         "Attach a receipt from a transaction: scan or choose a photo in the new-transaction form, or add one later from its details. Only fields you left empty are filled in from the receipt.",

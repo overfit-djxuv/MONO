@@ -68,9 +68,13 @@ struct OverviewView: View {
                     quickActions.entrance(2)
                     insightLine(budget).entrance(2)
                     if books.hasSeveralAccounts { accountsCard(books).surface().entrance(3) }
+                    cashFlow.entrance(3)
+                    spending.entrance(3)
                     goalsSection.entrance(3)
+                    savingsGrowth.entrance(4)
                     upcoming.entrance(4)
                     recent.entrance(5)
+                    allAnalytics.entrance(5)
                 }
                 .padding(.horizontal, Theme.gutter).padding(.top, 4).padding(.bottom, 40)
             }
@@ -168,27 +172,115 @@ struct OverviewView: View {
     // MARK: Summary
 
     private func summary(income: Int, expense: Int, budget: BudgetSummary, rate: Double?) -> some View {
-        let tint = ProgressTone.tint(budget.fraction ?? 0)
+        let tint = budget.state == .over ? Theme.danger : budget.state == .warning ? Theme.warning : Theme.accent
         return VStack(alignment: .leading, spacing: 12) {
-            StatStrip(items: [
-                .init(label: "Spent in \(month.shortTitle())", value: Money.format(expense)),
-                .init(label: "Budget left", value: budget.remaining.map { $0 < 0 ? "−\(Money.format(-$0))" : Money.format($0) } ?? "Not set",
-                      tint: budget.state == .over ? Theme.danger : Theme.ink),
-                .init(label: "Saved", value: rate.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", tint: (rate ?? 0) < 0 ? Theme.danger : Theme.income)
-            ])
-            if let f = budget.fraction {
-                ProgressLine(value: f, tint: tint, height: 5)
-                HStack {
-                    Text("\(Int((f * 100).rounded()))% of your \(month.shortTitle()) budget used").font(.caption).foregroundStyle(Theme.inkSecondary)
-                    Spacer()
-                    if let a = budget.dailyAllowance { Text("\(Money.format(a)) a day").font(.caption).foregroundStyle(Theme.inkSecondary) }
+            SectionHeader(title: month.title()).padding(.horizontal, 4)
+            HStack(spacing: 12) {
+                StatTile(title: "Income", value: Money.format(income), symbol: "arrow.down.left", tint: Theme.income)
+                StatTile(title: "Expenses", value: Money.format(expense), symbol: "arrow.up.right")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                budgetTile(budget, tint: tint)
+                VStack(spacing: 12) {
+                    if let rate {
+                        StatTile(title: "Saved", value: "\(Int((rate * 100).rounded()))%", symbol: "leaf",
+                                 tint: rate < 0 ? Theme.danger : Theme.ink, footnote: rate < 0 ? "Spending exceeds income" : "of income")
+                    } else {
+                        StatTile(title: "Saved", value: "—", symbol: "leaf", footnote: "No income yet")
+                    }
+                    StatTile(title: "Per day", value: budget.dailyAllowance.map { Money.format($0) } ?? "—", symbol: "calendar",
+                             footnote: budget.dailyAllowance == nil ? "No budget set" : "\(budget.daysLeft) \(budget.daysLeft == 1 ? "day" : "days") left")
                 }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func budgetTile(_ b: BudgetSummary, tint: Color) -> some View {
+        Button { tab = .budget } label: {
+            VStack(spacing: 12) {
+                RingGauge(value: b.fraction ?? 0, tint: tint, lineWidth: 11) {
+                    VStack(spacing: 0) {
+                        Text(b.fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "—").font(.figure(24)).foregroundStyle(Theme.ink)
+                        Text("used").font(.caption2).foregroundStyle(Theme.inkTertiary)
+                    }
+                }
+                .frame(width: 104, height: 104)
+                VStack(spacing: 2) {
+                    Text(b.remaining.map { $0 < 0 ? "Over by \(Money.format(-$0))" : "\(Money.format($0)) left" } ?? "No budget set")
+                        .font(.footnote.weight(.medium)).foregroundStyle(b.state == .over ? Theme.danger : Theme.ink)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text("Budget").font(.caption).foregroundStyle(Theme.inkTertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .glass(radius: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Analytics summaries
+
+    private var cashFlow: some View {
+        let reported = books.reported
+        let first = FinanceEngine.firstRecordMonth(transactions: reported)
+        let start = first.map { max($0, month.adding(-5)) } ?? month
+        let months = FinanceEngine.monthlySummaries(reported, range: start.months(through: month))
+        return VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Cash flow", trailing: "Details") { path.append(.analytics) }
+            if txs.isEmpty {
+                Text("Add a few transactions to see income and expenses by month.")
+                    .font(.subheadline).foregroundStyle(Theme.inkSecondary)
             } else {
-                Button { tab = .budget } label: { Text("Set a monthly budget to see what’s left").font(.caption.weight(.medium)).foregroundStyle(Theme.accent) }
-                    .buttonStyle(PressableStyle())
+                IncomeExpenseChart(months: months).hidesAmounts()
+                if let first, first > month.adding(-5) {
+                    Text("Showing records from \(first.title()). Earlier months aren’t estimated.")
+                        .font(.caption).foregroundStyle(Theme.inkTertiary)
+                }
             }
         }
         .surface()
+    }
+
+    private var spending: some View {
+        let slices = FinanceEngine.expensesByCategory(books.reported, in: month...month)
+        return VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Spending by category")
+            if slices.isEmpty {
+                Text("No expenses recorded in \(month.title()).").font(.subheadline).foregroundStyle(Theme.inkSecondary)
+            } else {
+                CategoryDonut(slices: slices).hidesAmounts()
+                CategoryBreakdownList(slices: slices, limit: 5)
+            }
+        }
+        .surface()
+    }
+
+    @ViewBuilder private var savingsGrowth: some View {
+        let growth = FinanceEngine.savingsGrowth(entries: books.reportableEntries(goals: goals, entries: entries), through: month)
+        if growth.count >= 2 {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "Savings growth", trailing: "Goals") { tab = .goals }
+                SavingsGrowthChart(points: growth, height: 110).hidesAmounts()
+            }
+            .surface()
+        }
+    }
+
+    private var allAnalytics: some View {
+        Button { path.append(.analytics) } label: {
+            HStack {
+                Label("All analytics", systemImage: "chart.xyaxis.line").font(.body)
+                Spacer()
+                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(Theme.inkTertiary)
+            }
+            .foregroundStyle(Theme.ink)
+            .surface()
+        }
+        .buttonStyle(PressableStyle())
     }
 
     // MARK: Quick actions
