@@ -89,9 +89,15 @@ enum Reminders {
     /// Replaces every scheduled reminder so edits, payments and deletions are always reflected.
     static func syncPlanned(_ planned: [PlannedExpense], subscriptions: [RecurringRule] = [], accounts: [Account] = []) async {
         let center = UNUserNotificationCenter.current()
-        let existing = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix("planned-") || $0.hasPrefix("sub-") }
+        let existing = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix("planned-") || $0.hasPrefix("sub-") || $0.hasPrefix("review-") }
         center.removePendingNotificationRequests(withIdentifiers: existing)
         guard isEnabled, await isAuthorized() else { return }
+        // On the 1st of each month: the last month's review is ready. No amounts in the text.
+        let review = UNMutableNotificationContent()
+        review.title = "Monthly review"; review.body = "Your review of last month is ready."; review.sound = .default
+        var first = DateComponents(); first.day = 1; first.hour = hour
+        try? await center.add(UNNotificationRequest(identifier: "review-monthly", content: review,
+                                                    trigger: UNCalendarNotificationTrigger(dateMatching: first, repeats: true)))
         let byID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
         let defaultID = AccountEngine.defaultAccount(accounts)?.id
         let all = plannedReminders(planned) + subscriptionReminders(subscriptions) { rule in

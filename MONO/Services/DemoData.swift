@@ -38,6 +38,9 @@ enum DemoData {
         }
         context.insert(PlannedExpense(title: "Car insurance", amountCents: 98_000,
                                       dueDate: cal.date(byAdding: .day, value: 12, to: now) ?? now, category: "Transportation"))
+        var cut = WhatIf.Scenario(); cut.name = "Pay cut"; cut.incomeChangePercent = -20; cut.newMonthlyCost = 5_000
+        cut.oneTimeExpense = 300_000; cut.oneTimeMonth = 4; cut.extraGoalName = "Tokyo"; cut.extraGoalMonthly = 20_000
+        WhatIfStore.shared.upsert(cut)
         context.insert(ReservedFund(name: "Emergency buffer", amountCents: 200_000))
         // Subscriptions: one due now, one coming up, a weekly, a quarterly and a yearly, plus confirmed past payments for the charts.
         func sub(_ title: String, _ cents: Int, _ cat: String, _ unit: RecurrenceUnit, _ n: Int, dueIn days: Int) -> RecurringRule {

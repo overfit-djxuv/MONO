@@ -20,6 +20,16 @@ struct ToolsView: View {
                             detail: "Test a purchase first: your money, budget, goals, hours of work, and buy now vs wait vs cheaper.")
                 }
                 .buttonStyle(PressableStyle())
+                NavigationLink { WhatIfLabView() } label: {
+                    ToolRow(symbol: "flask", title: "What-if lab",
+                            detail: "Try lower income, a new cost or a bigger savings goal and compare it with your plan. Nothing real changes.")
+                }
+                .buttonStyle(PressableStyle())
+                NavigationLink { MonthlyReviewView() } label: {
+                    ToolRow(symbol: "calendar.badge.clock", title: "Monthly review",
+                            detail: "A report for any month: income, spending, budget, goals, comparisons. Tap a figure to see its transactions; export it.")
+                }
+                .buttonStyle(PressableStyle())
                 NavigationLink { SafeToSpendView() } label: {
                     ToolRow(symbol: "shield.lefthalf.filled", title: "Safe to spend",
                             detail: "What you can spend without touching bills, savings or essentials.")

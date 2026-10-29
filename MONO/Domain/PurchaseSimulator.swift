@@ -95,6 +95,13 @@ enum PurchaseSimulator {
 }
 
 extension PurchaseSimulator {
+    /// What a goal's plan puts toward it per month, in the reporting currency (a weekly plan counts 52 ÷ 12 payments a month).
+    static func monthlyPace(of g: SavingsGoal, books: Books) -> Int {
+        let perYear = SubscriptionSchedule.timesPerYear(unit: g.frequency == .monthly ? .month : .week, interval: g.frequency == .biweekly ? 2 : 1)
+        let perMonth = NSDecimalNumber(decimal: Decimal(g.plannedMonthlyCents) * perYear / 12).intValue
+        return books.converter.convert(perMonth, from: g.currency) ?? 0
+    }
+
     /// Gathers the figures from stored data, using the same engines as the rest of the app.
     @MainActor
     static func makeContext(now: Date = .now, books: Books, planned: [PlannedExpense], rules: [RecurringRule], goals: [SavingsGoal],
@@ -114,13 +121,9 @@ extension PurchaseSimulator {
         for l in summary.lines { catBudgets[l.category] = (l.limit, l.spent) }
         let paces: [GoalPace] = goals.compactMap { g in
             let plan = SavingsPlanner.plan(for: g, costs: costs, entries: entries, today: now, calendar: calendar)
-            guard plan.remaining > 0,
-                  let remaining = books.converter.convert(plan.remaining, from: g.currency) else { return nil }
-            let perYear = SubscriptionSchedule.timesPerYear(unit: g.frequency == .monthly ? .month : .week, interval: g.frequency == .biweekly ? 2 : 1)
-            let perMonth = NSDecimalNumber(decimal: Decimal(g.plannedMonthlyCents) * perYear / 12).intValue
-            let pace = books.converter.convert(perMonth, from: g.currency) ?? 0
-            let est = plan.estimatedCompletion
-            return GoalPace(name: g.name, priority: g.priorityRaw, monthlyPace: pace, remaining: remaining, estimatedCompletion: est)
+            guard plan.remaining > 0, let remaining = books.converter.convert(plan.remaining, from: g.currency) else { return nil }
+            return GoalPace(name: g.name, priority: g.priorityRaw, monthlyPace: monthlyPace(of: g, books: books), remaining: remaining,
+                            estimatedCompletion: plan.estimatedCompletion)
         }
         return Context(availableCash: books.overview.total, safeToSpendNow: safe(config).flexible,
                        safeToSpend30Days: safe(thirty).flexible,

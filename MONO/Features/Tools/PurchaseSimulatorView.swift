@@ -19,7 +19,12 @@ struct PurchaseSimulatorView: View {
     @AppStorage("hourlyIncomeCents") private var hourlyCents = 0
 
     @State private var item = ""
-    @State private var priceText = ""
+    @State private var priceText: String = {
+        #if DEBUG
+        if let i = CommandLine.arguments.firstIndex(of: "-MONOSimPrice"), i + 1 < CommandLine.arguments.count { return CommandLine.arguments[i + 1] }
+        #endif
+        return ""
+    }()
     @State private var category = ""
     @State private var compare = false
     @State private var altText = ""
@@ -83,11 +88,11 @@ struct PurchaseSimulatorView: View {
             Hairline()
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Hourly income (optional)").font(.body)
-                    Text("Shows how many hours of work it costs.").font(.caption).foregroundStyle(Theme.inkSecondary)
+                    Text("Hourly income").font(.body)
+                    Text("Optional: shows the hours of work it costs.").font(.caption).foregroundStyle(Theme.inkSecondary)
                 }
-                Spacer()
-                AmountField(text: $hourlyText).frame(maxWidth: 140)
+                Spacer(minLength: 4)
+                AmountField(text: $hourlyText).frame(maxWidth: 120)
                     .onChange(of: hourlyText) { _, v in hourlyCents = Money.parse(v) ?? 0 }
             }
         }

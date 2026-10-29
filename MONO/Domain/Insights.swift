@@ -45,8 +45,14 @@ enum Insights {
     }
 
     static func monthToDateComparison(_ txs: [TransactionRecord], now: Date, calendar: Calendar = .current) -> PeriodComparison {
-        let cur = MonthKey(now, calendar: calendar), prev = cur.adding(-1)
-        let days = min(calendar.component(.day, from: now), prev.daysInMonth(calendar: calendar))
+        let cur = MonthKey(now, calendar: calendar)
+        return periodComparison(txs, current: cur, previous: cur.adding(-1), days: calendar.component(.day, from: now), calendar: calendar)
+    }
+
+    /// Spending in the first `days` days of `current` against the first `days` days of `previous` (capped at the shorter month).
+    static func periodComparison(_ txs: [TransactionRecord], current cur: MonthKey, previous prev: MonthKey, days wanted: Int,
+                                 calendar: Calendar = .current) -> PeriodComparison {
+        let days = min(wanted, prev.daysInMonth(calendar: calendar), cur.daysInMonth(calendar: calendar))
         var curCat: [String: Int] = [:], prevCat: [String: Int] = [:]
         for t in txs where t.kind == .expense {
             let k = MonthKey(t.date, calendar: calendar), day = calendar.component(.day, from: t.date)

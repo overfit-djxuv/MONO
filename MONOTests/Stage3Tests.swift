@@ -382,3 +382,194 @@ final class PurchaseSimulatorTests: XCTestCase {
         XCTAssertLessThan(b.goalDelays[0].delayDays ?? 0, a.goalDelays[0].delayDays ?? 0)
     }
 }
+
+// MARK: - What-if lab
+
+final class WhatIfTests: XCTestCase {
+    private func e(_ cents: Int, _ y: Int, _ m: Int, _ d: Int = 5) -> TransactionRecord { TransactionRecord(amountCents: cents, kind: .expense, category: "Food", date: date(y, m, d), title: "") }
+    private func i(_ cents: Int, _ y: Int, _ m: Int, _ d: Int = 1) -> TransactionRecord { TransactionRecord(amountCents: cents, kind: .income, category: "Salary", date: date(y, m, d), title: "") }
+    private let now = date(2026, 4, 10)
+    private var goals: [WhatIf.GoalLine] { [.init(name: "Tokyo", remaining: 600_000, monthlyPace: 50_000), .init(name: "Done", remaining: 0, monthlyPace: 10_000)] }
+
+    private func base(_ txs: [TransactionRecord]? = nil, cash: Int = 300_000) -> WhatIf.Baseline {
+        let t = txs ?? [i(500_000, 2026, 1), e(200_000, 2026, 1), i(500_000, 2026, 2), e(250_000, 2026, 2), i(500_000, 2026, 3), e(150_000, 2026, 3)]
+        return WhatIf.baseline(t, now: now, startingCash: cash, goals: goals, budgetTotal: 220_000, calendar: utc)
+    }
+
+    func testBaselineIsTheAverageOfTheLastThreeCompletedMonths() {
+        let b = base()
+        XCTAssertEqual(b.monthlyIncome, 500_000); XCTAssertEqual(b.monthlySpending, 200_000, "(200k + 250k + 150k) ÷ 3")
+        XCTAssertEqual(b.basisMonths, 3); XCTAssertEqual(b.monthlyGoalSavings, 60_000)
+        XCTAssertTrue(b.basis.contains("3 completed months"))
+    }
+    func testTheCurrentIncompleteMonthIsNotMixedIntoTheAverage() {
+        let txs = [i(500_000, 2026, 3), e(100_000, 2026, 3), e(999_999, 2026, 4, 2)]   // April is only 10 days old
+        let b = base(txs)
+        XCTAssertEqual(b.monthlySpending, 100_000); XCTAssertEqual(b.basisMonths, 1)
+    }
+    func testWithNoCompletedMonthItSaysItUsesThisMonthSoFar() {
+        let b = base([i(300_000, 2026, 4, 2), e(80_000, 2026, 4, 3)])
+        XCTAssertEqual(b.monthlyIncome, 300_000); XCTAssertEqual(b.basisMonths, 0); XCTAssertTrue(b.basis.contains("this month so far"))
+    }
+    func testAnUnchangedScenarioMatchesTheCurrentPlanExactly() {
+        let b = base()
+        let plan = WhatIf.project(b), same = WhatIf.project(b, scenario: WhatIf.Scenario())
+        XCTAssertEqual(plan, same); XCTAssertEqual(plan.balances.count, 13)
+        XCTAssertEqual(plan.monthlySurplus, 500_000 - 200_000 - 60_000)
+        XCTAssertEqual(plan.endingBalance, 300_000 + 12 * 240_000)
+        XCTAssertTrue(WhatIf.Scenario().isUnchanged)
+    }
+    func testLowerIncome() {
+        var s = WhatIf.Scenario(); s.incomeChangePercent = -20
+        let p = WhatIf.project(base(), scenario: s)
+        XCTAssertEqual(p.monthlyIncome, 400_000); XCTAssertEqual(p.monthlySurplus, 140_000)
+        XCTAssertEqual(p.endingBalance, 300_000 + 12 * 140_000)
+        var cut = WhatIf.Scenario(); cut.incomeChangeAmount = -600_000
+        XCTAssertEqual(WhatIf.project(base(), scenario: cut).monthlyIncome, 0, "income can't go below zero")
+    }
+    func testANewSubscriptionAndASpendingOverride() {
+        var s = WhatIf.Scenario(); s.newMonthlyCost = 5_000
+        XCTAssertEqual(WhatIf.project(base(), scenario: s).monthlySpending, 205_000)
+        s.spendingOverride = 150_000
+        XCTAssertEqual(WhatIf.project(base(), scenario: s).monthlySpending, 155_000, "the override replaces normal spending; the new cost is added on top")
+    }
+    func testAOneTimeExpenseHitsOnlyItsMonthAndCanMakeTheMoneyRunOut() {
+        var s = WhatIf.Scenario(); s.oneTimeExpense = 1_200_000; s.oneTimeMonth = 3
+        let p = WhatIf.project(base(), scenario: s)
+        XCTAssertEqual(p.balances[2], 300_000 + 2 * 240_000, "nothing changes before month 3")
+        XCTAssertEqual(p.balances[3], 300_000 + 3 * 240_000 - 1_200_000, "−180,000")
+        XCTAssertGreaterThan(p.balances[4], 0, "it recovers the next month, but it did run out")
+        XCTAssertEqual(p.runsOutInMonth, 3); XCTAssertLessThan(p.lowestBalance, 0)
+        XCTAssertNil(WhatIf.project(base()).runsOutInMonth)
+    }
+    func testSavingMoreForAGoalLowersCashAndBringsTheGoalForward() {
+        var s = WhatIf.Scenario(); s.extraGoalName = "Tokyo"; s.extraGoalMonthly = 50_000
+        let p = WhatIf.project(base(), scenario: s)
+        XCTAssertEqual(p.monthlyGoalSavings, 110_000); XCTAssertEqual(p.monthlySurplus, 190_000)
+        let o = try? XCTUnwrap(WhatIf.goalOutlook(base(), scenario: s, now: now, calendar: utc).first)
+        // 600k ÷ 50k = 12 months; 600k ÷ 100k = 6 months
+        XCTAssertEqual(o?.baselineDate.map { utc.component(.year, from: $0) * 12 + utc.component(.month, from: $0) }, 2027 * 12 + 4)
+        XCTAssertEqual(o?.scenarioDate.map { utc.component(.year, from: $0) * 12 + utc.component(.month, from: $0) }, 2026 * 12 + 10)
+        XCTAssertEqual(WhatIf.goalOutlook(base(), scenario: s, now: now, calendar: utc).count, 1, "funded goals are left out")
+    }
+    func testScenariosPersistAndAreCappedAtThree() {
+        let d = UserDefaults(suiteName: "mono-wi-\(UUID().uuidString)")!
+        let store = WhatIfStore(defaults: d)
+        var s = WhatIf.Scenario(); s.name = "Pay cut"; s.incomeChangePercent = -10
+        store.upsert(s)
+        XCTAssertEqual(WhatIfStore(defaults: d).scenarios.first?.name, "Pay cut")
+        for n in 1...5 { var x = WhatIf.Scenario(); x.name = "S\(n)"; store.upsert(x) }
+        XCTAssertEqual(store.scenarios.count, 3)
+        s.name = "Renamed"; store.upsert(s)
+        XCTAssertEqual(store.scenarios.first { $0.id == s.id }?.name, "Renamed"); XCTAssertEqual(store.scenarios.count, 3)
+        store.delete(s.id); XCTAssertEqual(store.scenarios.count, 2)
+    }
+    func testRunningAProjectionNeverChangesAnyRecord() throws {
+        let txs = [i(500_000, 2026, 3), e(100_000, 2026, 3)]
+        let before = txs.map(\.amountCents)
+        var s = WhatIf.Scenario(); s.oneTimeExpense = 9_999_999; s.incomeChangePercent = -100
+        _ = WhatIf.project(base(txs), scenario: s)
+        XCTAssertEqual(txs.map(\.amountCents), before)
+    }
+}
+
+// MARK: - Monthly review
+
+final class MonthlyReviewTests: XCTestCase {
+    private func e(_ cents: Int, _ y: Int, _ m: Int, _ d: Int, _ cat: String = "Food", merchant: String = "") -> TransactionRecord {
+        TransactionRecord(amountCents: cents, kind: .expense, category: cat, date: date(y, m, d), title: "", merchant: merchant)
+    }
+    private func i(_ cents: Int, _ y: Int, _ m: Int, _ d: Int = 1) -> TransactionRecord { TransactionRecord(amountCents: cents, kind: .income, category: "Salary", date: date(y, m, d), title: "") }
+    private func tr(_ cents: Int, _ y: Int, _ m: Int, _ d: Int) -> TransactionRecord {
+        let t = TransactionRecord(amountCents: cents, kind: .transfer, category: "", date: date(y, m, d), title: ""); return t
+    }
+    private let noRecurring = MonthlyReview.Recurring(paidCount: 0, paidTotal: 0, activeCount: 0, monthlyEstimate: 0)
+    private func fmt(_ c: Int) -> String { "RM \(c / 100).\(String(format: "%02d", c % 100))" }
+    private func make(_ month: MonthKey, now: Date, _ txs: [TransactionRecord], moves: [(goal: String, cents: Int)] = [], budget: BudgetSummary? = nil,
+                      recurring: MonthlyReview.Recurring? = nil) -> MonthlyReview.Review {
+        MonthlyReview.make(month: month, now: now, txs: txs, goalMoves: moves, goalProgress: [], budget: budget, recurring: recurring ?? noRecurring,
+                           upcoming: [], format: fmt, calendar: utc)
+    }
+    private let feb = MonthKey(year: 2026, month: 2), mar = MonthKey(year: 2026, month: 3)
+
+    func testTotalsNetAndSavingsRateIgnoreTransfersAndGoalMoney() {
+        let txs = [i(500_000, 2026, 3), e(120_000, 2026, 3, 5), e(30_000, 2026, 3, 9, "Fun"), tr(999_999, 2026, 3, 7), e(77_000, 2026, 2, 5)]
+        let r = make(mar, now: date(2026, 4, 2), txs, moves: [("Trip", 50_000), ("Trip", -10_000)])
+        XCTAssertEqual(r.income, 500_000); XCTAssertEqual(r.expense, 150_000); XCTAssertEqual(r.net, 350_000)
+        XCTAssertEqual(r.movedToGoals, 40_000, "contributions minus withdrawals")
+        XCTAssertEqual(try XCTUnwrap(r.savingsRate), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(r.transactionCount, 3, "the transfer and last month's expense aren't in March")
+        XCTAssertTrue(r.isComplete); XCTAssertEqual(r.daysCovered, 31)
+    }
+    func testCategoriesSumToTheExpensesAndSharesToOne() {
+        let r = make(mar, now: date(2026, 4, 2), [e(60_000, 2026, 3, 2, "Rent"), e(30_000, 2026, 3, 3, "Food"), e(10_000, 2026, 3, 4, "Food"), i(1, 2026, 3)])
+        XCTAssertEqual(r.categories.map(\.category), ["Rent", "Food"]); XCTAssertEqual(r.categories.map(\.cents), [60_000, 40_000])
+        XCTAssertEqual(r.categories.reduce(0) { $0 + $1.cents }, r.expense); XCTAssertEqual(r.categories.reduce(0.0) { $0 + $1.share }, 1, accuracy: 1e-9)
+    }
+    func testAMonthInProgressSaysSoAndOnlyCountsItsDays() {
+        let r = make(mar, now: date(2026, 3, 12), [e(10_000, 2026, 3, 5)])
+        XCTAssertFalse(r.isComplete); XCTAssertEqual(r.daysCovered, 12)
+        XCTAssertEqual(make(MonthKey(year: 2026, month: 5), now: date(2026, 3, 12), []).daysCovered, 0, "a future month has covered nothing")
+    }
+    func testAFinishedMonthIsComparedWholeAgainstWholeAndCategoriesAgreeWithTheTotals() {
+        let txs = [e(10_000, 2026, 2, 3, "Food"), e(5_000, 2026, 2, 28, "Food"), i(300_000, 2026, 2),
+                   e(20_000, 2026, 3, 3, "Food"), e(7_000, 2026, 3, 30, "Fun"), i(400_000, 2026, 3)]
+        let c = try? XCTUnwrap(make(mar, now: date(2026, 4, 2), txs).comparison)
+        XCTAssertEqual(c?.isPartial, false); XCTAssertEqual(c?.previous, feb)
+        XCTAssertEqual(c?.expense, 27_000); XCTAssertEqual(c?.previousExpense, 15_000); XCTAssertEqual(c?.income, 400_000); XCTAssertEqual(c?.previousIncome, 300_000)
+        XCTAssertEqual(c?.categoryShifts.reduce(0) { $0 + $1.current }, c?.expense, "March 30th is included, not cut at February's length")
+        XCTAssertEqual(c?.categoryShifts.reduce(0) { $0 + $1.previous }, c?.previousExpense)
+    }
+    func testAMonthInProgressIsComparedOverTheSameNumberOfDays() {
+        let txs = [e(10_000, 2026, 2, 3), e(90_000, 2026, 2, 20), e(20_000, 2026, 3, 3)]
+        let c = try? XCTUnwrap(make(mar, now: date(2026, 3, 10), txs).comparison)
+        XCTAssertEqual(c?.isPartial, true); XCTAssertEqual(c?.days, 10)
+        XCTAssertEqual(c?.previousExpense, 10_000, "February's day 20 is outside the first 10 days"); XCTAssertEqual(c?.expense, 20_000)
+    }
+    func testNoComparisonWithoutAPreviousMonthOfHistory() {
+        XCTAssertNil(make(mar, now: date(2026, 4, 2), [e(100, 2026, 3, 3)]).comparison)
+    }
+    func testPatternsAreFactsFromTheMonth() {
+        let r = make(mar, now: date(2026, 4, 2), [e(5_000, 2026, 3, 7), e(40_000, 2026, 3, 9, "Rent"), e(1_000, 2026, 3, 10), i(1, 2026, 3)])   // Mar 7 is a Saturday
+        XCTAssertTrue(r.patterns.contains { $0.contains("highest-spending day") && $0.contains("RM 400.00") })
+        XCTAssertTrue(r.patterns.contains { $0.contains("largest single expense was RM 400.00") })
+        XCTAssertTrue(r.patterns.contains { $0.contains("3 expenses") })
+        XCTAssertTrue(r.patterns.contains { $0.contains("weekends") })
+        XCTAssertTrue(r.patterns.contains { $0.contains("Rent was your biggest category") })
+        XCTAssertTrue(make(mar, now: date(2026, 4, 2), []).patterns.isEmpty, "no spending, nothing to say")
+    }
+    func testWorthALookFlagsOnlyRealJumpsAndOverBudgetLines() {
+        let txs = [e(10_000, 2026, 2, 3, "Fun"), e(20_000, 2026, 3, 3, "Fun"),         // +100.00 (+100%)
+                   e(10_000, 2026, 2, 4, "Food"), e(10_500, 2026, 3, 4, "Food")]         // +5.00: too small
+        let r = make(mar, now: date(2026, 4, 2), txs)
+        XCTAssertEqual(r.worthALook.filter { $0.contains("is up") }.count, 1)
+        XCTAssertTrue(r.worthALook.first?.contains("Fun is up RM 100.00 (100%)") ?? false)
+        let line = BudgetLine(category: "Food", limit: 5_000, spent: 12_000)
+        let b = BudgetSummary(month: mar, total: 50_000, spent: 12_000, lines: [line], unbudgetedSpent: 0, daysLeft: 0)
+        XCTAssertTrue(make(mar, now: date(2026, 4, 2), txs, budget: b).worthALook.contains { $0.contains("Food went RM 70.00 over its budget") })
+    }
+    func testManySmallPurchasesAreCounted() {
+        let small = (1...9).map { e(1_000, 2026, 3, $0) } + [e(30_000, 2026, 3, 20, "Rent")]
+        let r = make(mar, now: date(2026, 4, 2), small)
+        XCTAssertTrue(r.worthALook.contains { $0.contains("9 small purchases under RM 20.00 added up to RM 90.00") })
+    }
+    func testSubscriptionSummaryIsLabelledAnEstimate() {
+        let r = make(mar, now: date(2026, 4, 2), [e(100, 2026, 3, 1)], recurring: .init(paidCount: 2, paidTotal: 7_080, activeCount: 3, monthlyEstimate: 9_000))
+        XCTAssertTrue(r.worthALook.contains { $0.contains("3 active subscriptions") && $0.contains("(an estimate)") })
+    }
+    func testTheTimelineRunsFromTheFirstRecordToNow() {
+        let ms = MonthlyReview.months([e(100, 2025, 11, 5), e(100, 2026, 2, 5)], entries: [], now: date(2026, 3, 10), calendar: utc)
+        XCTAssertEqual(ms.map(\.string), ["2025-11", "2025-12", "2026-01", "2026-02", "2026-03"])
+        XCTAssertEqual(MonthlyReview.months([], entries: [], now: date(2026, 3, 10), calendar: utc).map(\.string), ["2026-03"])
+    }
+    func testExportsContainTheRealFiguresAndEscapeCSV() {
+        PrivacyStore.shared.setHidden(true); defer { PrivacyStore.shared.setHidden(false) }
+        let r = make(mar, now: date(2026, 4, 2), [i(500_000, 2026, 3), e(12_345, 2026, 3, 5, "Food, drinks", merchant: "Café \"Zed\"")])
+        let md = MonthlyReview.markdown(r, format: fmt)
+        XCTAssertTrue(md.contains("# March 2026 review")); XCTAssertTrue(md.contains("Income: RM 5000.00")); XCTAssertTrue(md.contains("Net cash flow: RM 4876.55"))
+        XCTAssertFalse(md.contains("••••"), "an export is the real numbers even with Hide amounts on")
+        let csv = MonthlyReview.csv(r, format: fmt)
+        XCTAssertTrue(csv.contains("\"Food, drinks\"")); XCTAssertTrue(csv.contains("\"Café \"\"Zed\"\"\""))
+        XCTAssertEqual(Money.format(12_345, ignoreHiding: true), "RM 123.45"); XCTAssertEqual(Money.format(12_345), "RM ••••")
+    }
+}
